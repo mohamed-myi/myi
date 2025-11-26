@@ -1,0 +1,159 @@
+body {
+    font-family: Arial, sans-serif;
+    background-color: #121212;
+    color: #fff;
+    margin: 0;
+    padding: 20px;
+}
+
+h1 {
+    color: #1DB954;
+    text-align: center;
+}
+
+/* Main Menu */
+.menu-container {
+    width: 80%;
+    margin: 0 auto;
+    text-align: center;
+}
+
+/* Top Menu Buttons*/
+.menu-buttons {
+    display: flex;
+    justify-content: space-around;
+    margin-bottom: 40px;
+}
+
+.menu-buttons .menu-button {
+    color: #1DB954;
+    font-size: 1.2em;
+    padding: 10px 20px;
+    text-decoration: none;
+    border: 2px solid #1DB954;
+    border-radius: 8px;
+    transition: background-color 0.3s, color 0.3s;
+}
+
+.menu-buttons .menu-button:hover {
+    background-color: #1DB954;
+    color: #121212;
+}
+
+/* Playlist Creation Section*/
+.section-title {
+    font-size: 1.8em;
+    margin-bottom: 20px;
+    color: #1DB954;
+}
+
+.playlist-form {
+    display: flex;
+    flex-direction: column;
+    align-items: center; 
+}
+
+.playlist-section {
+    margin: 10px 0;
+    text-align: center;
+    width: 80%; /* Adjust width of input boxes */
+}
+
+.playlist-section label {
+    display: block;
+    font-size: 1.2em;
+    margin-bottom: 10px;
+}
+
+.playlist-section input {
+    width: 100%;
+    padding: 10px;
+    border-radius: 5px;
+    border: 1px solid #b3b3b3;
+    background-color: #282828;
+    color: #fff;
+    font-size: 1em;
+}
+
+.playlist-section input::placeholder {
+    color: #999;
+}
+
+/* Centered Submit Button */
+.submit-container {
+    margin-top: 20px;
+    text-align: center;
+}
+
+.submit-button {
+    background-color: #1DB954;
+    color: white;
+    padding: 10px 20px;
+    border: none;
+    border-radius: 5px;
+    font-size: 16px;
+    cursor: pointer;
+}
+
+.submit-button:hover {
+    background-color: #1AA34A;
+}
+
+/* Top Tracks, Artists, Albums Pages */
+ul {
+    list-style-type: none;
+    padding: 0;
+}
+
+li {
+    background-color: #282828;
+    margin: 15px 0;
+    padding: 15px;
+    border-radius: 10px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    display: flex;
+    align-items: center;
+}
+
+li strong {
+    font-size: 1.3em;
+    color: #1DB954;
+}
+
+img {
+    border-radius: 8px;
+    margin-right: 15px;
+}
+
+/* Top Tracks */
+.track-info {
+    display: flex;
+    align-items: center;
+}
+
+.artist {
+    color: #b3b3b3;
+}
+
+.album {
+    color: #999;
+    font-size: 0.9em;
+}
+
+/*Top Artists */
+.artist-info {
+    display: flex;
+    align-items: center;
+}
+
+.track-info {
+    margin-top: 10px;
+    color: #b3b3b3;
+}
+
+
+/* Listening Insights Dashboard */
+canvas {
+    margin: 20px auto;
+    display: block;
+}

@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Error - Spotify App</title>
+    <link rel="stylesheet" href="/style.css">
+    <style>
+        .error-container {
+            max-width: 600px;
+            margin: 100px auto;
+            padding: 40px;
+            text-align: center;
+            background-color: #282828;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        }
+
+        .error-container h1 {
+            color: #ff4b4b;
+            margin-bottom: 20px;
+        }
+
+        .error-container p {
+            color: #b3b3b3;
+            font-size: 1.1em;
+            margin-bottom: 30px;
+        }
+
+        .error-details {
+            background-color: #1a1a1a;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+            color: #888;
+            font-size: 0.9em;
+            text-align: left;
+        }
+
+        .back-button {
+            display: inline-block;
+            padding: 10px 20px;
+            background-color: #1DB954;
+            color: #121212;
+            text-decoration: none;
+            border-radius: 5px;
+            font-weight: bold;
+            transition: background-color 0.3s;
+        }
+
+        .back-button:hover {
+            background-color: #1AA34A;
+        }
+    </style>
+</head>
+<body>
+    <div class="error-container">
+        <h1>Error</h1>
+        <p><%= typeof message !== 'undefined' ? message : 'An error occurred' %></p>
+        <% if (typeof error !== 'undefined' && error) { %>
+            <div class="error-details">
+                <strong>Details:</strong><br>
+                <%= error %>
+            </div>
+        <% } %>
+        <a href="/menu" class="back-button">Back to Menu</a>
+    </div>
+</body>
+</html>
+

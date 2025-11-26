@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Artist Deep Dive</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/style.css">
+    <%- include('bronze-styles') %>
+    <style>
+        .artist-card {
+            background: linear-gradient(135deg, var(--bronze-dark) 0%, var(--old-burgundy) 100%);
+            margin: 20px 0;
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+            border: 1px solid rgba(203, 152, 79, 0.3);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .artist-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.6);
+            border-color: rgba(203, 152, 79, 0.5);
+        }
+
+        .artist-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 20px;
+            gap: 20px;
+        }
+
+        .artist-image {
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            object-fit: cover;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+        }
+
+        .artist-info {
+            flex-grow: 1;
+        }
+
+        .artist-name {
+            font-size: 1.575em;
+            color: var(--white);
+            margin-bottom: 8px;
+            font-weight: 600;
+            font-family: 'IBM Plex Mono', monospace;
+        }
+
+        .artist-genres {
+            color: var(--indian-yellow);
+            font-size: 0.9975em;
+            font-family: 'IBM Plex Mono', monospace;
+        }
+
+        .coverage-section {
+            margin: 20px 0;
+        }
+
+        .coverage-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .coverage-text {
+            color: var(--white);
+            font-size: 1.155em;
+            font-family: 'IBM Plex Mono', monospace;
+        }
+
+        .coverage-percent {
+            color: var(--indian-yellow);
+            font-size: 1.575em;
+            font-weight: 600;
+            font-family: 'IBM Plex Mono', monospace;
+        }
+
+        .progress-bar-container {
+            width: 100%;
+            height: 30px;
+            background-color: var(--dark-bg);
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid rgba(203, 152, 79, 0.2);
+            margin-bottom: 15px;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--russet) 0%, var(--indian-yellow) 100%);
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            padding-right: 10px;
+            transition: width 0.5s ease;
+        }
+
+        .progress-text {
+            color: var(--white);
+            font-size: 0.945em;
+            font-weight: 600;
+            font-family: 'IBM Plex Mono', monospace;
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+        }
+
+        .missing-tracks {
+            margin-top: 20px;
+        }
+
+        .missing-tracks-title {
+            color: var(--white);
+            font-size: 1.155em;
+            font-weight: 600;
+            margin-bottom: 15px;
+            font-family: 'IBM Plex Mono', monospace;
+        }
+
+        .track-item {
+            display: flex;
+            align-items: center;
+            background: var(--dark-bg);
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            border-left: 3px solid var(--indian-yellow);
+            transition: background 0.2s;
+        }
+
+        .track-item:hover {
+            background: rgba(42, 31, 28, 0.6);
+        }
+
+        .track-image {
+            width: 50px;
+            height: 50px;
+            border-radius: 6px;
+            margin-right: 15px;
+            object-fit: cover;
+        }
+
+        .track-info {
+            flex-grow: 1;
+        }
+
+        .track-name {
+            color: var(--white);
+            font-size: 1.05em;
+            font-weight: 500;
+            margin-bottom: 4px;
+            font-family: 'IBM Plex Mono', monospace;
+        }
+
+        .track-album {
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 0.945em;
+            font-family: 'IBM Plex Mono', monospace;
+        }
+
+        .play-button {
+            background: #1DB954;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 0.945em;
+            font-weight: 600;
+            font-family: 'IBM Plex Mono', monospace;
+            text-decoration: none;
+            display: inline-block;
+            transition: background 0.2s, transform 0.2s;
+        }
+
+        .play-button:hover {
+            background: #1ed760;
+            transform: scale(1.05);
+        }
+
+        .complete-dive-button {
+            background: linear-gradient(135deg, var(--indian-yellow) 0%, var(--russet) 100%);
+            color: var(--white);
+            border: none;
+            padding: 12px 24px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 1.05em;
+            font-weight: 600;
+            font-family: 'IBM Plex Mono', monospace;
+            margin-top: 20px;
+            width: 100%;
+            transition: transform 0.2s, box-shadow 0.2s;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+        }
+
+        .complete-dive-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+        }
+
+        .complete-dive-button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .playlist-form {
+            margin-top: 15px;
+            display: none;
+        }
+
+        .playlist-form.active {
+            display: block;
+        }
+
+        .playlist-input {
+            width: 100%;
+            padding: 10px;
+            border-radius: 8px;
+            border: 1px solid rgba(203, 152, 79, 0.3);
+            background: var(--dark-bg);
+            color: var(--white);
+            font-size: 1.05em;
+            font-family: 'IBM Plex Mono', monospace;
+            margin-bottom: 10px;
+        }
+
+        .playlist-input:focus {
+            outline: none;
+            border-color: var(--indian-yellow);
+        }
+
+        .time-range-selector {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 30px;
+            padding: 20px;
+            background: linear-gradient(135deg, var(--bronze-dark) 0%, var(--old-burgundy) 100%);
+            border-radius: 12px;
+            border: 1px solid rgba(203, 152, 79, 0.3);
+        }
+
+        .time-range-selector label {
+            color: var(--white);
+            font-size: 1.05em;
+            font-weight: 500;
+            font-family: 'IBM Plex Mono', monospace;
+        }
+
+        .time-range-selector select {
+            padding: 8px 15px;
+            border-radius: 8px;
+            border: 1px solid rgba(203, 152, 79, 0.3);
+            background: var(--dark-bg);
+            color: var(--white);
+            font-size: 1.05em;
+            font-family: 'IBM Plex Mono', monospace;
+            cursor: pointer;
+        }
+
+        .time-range-selector select:focus {
+            outline: none;
+            border-color: var(--indian-yellow);
+        }
+
+        .no-artists {
+            text-align: center;
+            color: var(--white);
+            font-size: 1.26em;
+            padding: 40px;
+            font-family: 'IBM Plex Mono', monospace;
+        }
+
+        .loading-message {
+            text-align: center;
+            color: var(--indian-yellow);
+            font-size: 1.155em;
+            padding: 20px;
+            font-family: 'IBM Plex Mono', monospace;
+        }
+
+        @media (max-width: 768px) {
+            .artist-header {
+                flex-direction: column;
+                text-align: center;
+            }
+
+            .coverage-header {
+                flex-direction: column;
+                gap: 10px;
+            }
+
+            .time-range-selector {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <%- include('shared-header', { title: 'Artist Deep Dive', subtitle: 'Discover how much of your favorite artists you\'ve explored' }) %>
+
+    <div class="container">
+        <!-- Time Range Selector -->
+        <div class="time-range-selector">
+            <label for="timeRange">Time Range:</label>
+            <select id="timeRange" onchange="changeTimeRange()">
+                <option value="short_term" <%= timeRange === 'short_term' ? 'selected' : '' %>>Last 4 weeks</option>
+                <option value="medium_term" <%= timeRange === 'medium_term' ? 'selected' : '' %>>Last 6 months</option>
+                <option value="long_term" <%= timeRange === 'long_term' ? 'selected' : '' %>>All time</option>
+            </select>
+        </div>
+
+        <% if (typeof artists === 'undefined' || !artists || artists.length === 0) { %>
+            <div class="no-artists">
+                <p>No artist data available. Try a different time range.</p>
+            </div>
+        <% } else { %>
+            <% artists.forEach((item, index) => { %>
+                <div class="artist-card">
+                    <div class="artist-header">
+                        <img src="<%= item.artist.images && item.artist.images.length > 0 ? item.artist.images[0].url : '/placeholder.png' %>" 
+                             alt="<%= item.artist.name %>" 
+                             class="artist-image"
+                             onerror="this.src='https://via.placeholder.com/100?text=No+Image'">
+                        <div class="artist-info">
+                            <div class="artist-name"><%= item.artist.name %></div>
+                            <div class="artist-genres">
+                                <%= item.artist.genres && item.artist.genres.length > 0 ? item.artist.genres.slice(0, 3).join(', ') : 'No genres available' %>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="coverage-section">
+                        <div class="coverage-header">
+                            <div class="coverage-text">
+                                You've heard <strong><%= item.heardCount %></strong> of <strong><%= item.totalTracks %></strong> essential tracks
+                            </div>
+                            <div class="coverage-percent"><%= item.coveragePercent %>%</div>
+                        </div>
+                        <div class="progress-bar-container">
+                            <div class="progress-fill" style="width: <%= item.coveragePercent %>%">
+                                <span class="progress-text"><%= item.coveragePercent %>%</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <% if (item.missingTracks && item.missingTracks.length > 0) { %>
+                        <div class="missing-tracks">
+                            <div class="missing-tracks-title">Tracks You Haven't Heard Yet:</div>
+                            <% item.missingTracks.forEach(track => { %>
+                                <div class="track-item">
+                                    <img src="<%= track.album && track.album.images && track.album.images.length > 0 ? track.album.images[track.album.images.length - 1].url : '/placeholder.png' %>" 
+                                         alt="<%= track.name %>" 
+                                         class="track-image"
+                                         onerror="this.src='https://via.placeholder.com/50?text=No+Image'">
+                                    <div class="track-info">
+                                        <div class="track-name"><%= track.name %></div>
+                                        <div class="track-album"><%= track.album ? track.album.name : 'Unknown Album' %></div>
+                                    </div>
+                                    <a href="<%= track.external_urls ? track.external_urls.spotify : '#' %>" 
+                                       target="_blank" 
+                                       class="play-button">
+                                        Play on Spotify
+                                    </a>
+                                </div>
+                            <% }) %>
+                        </div>
+
+                        <button class="complete-dive-button" onclick="showPlaylistForm('<%= item.artist.id %>', '<%= item.artist.name %>', <%= index %>)">
+                            Complete the Dive
+                        </button>
+
+                        <div class="playlist-form" id="playlist-form-<%= index %>">
+                            <input type="text" 
+                                   class="playlist-input" 
+                                   id="playlist-name-<%= index %>" 
+                                   placeholder="Enter playlist name (optional)"
+                                   value="Deep Dive - <%= item.artist.name %>">
+                            <button class="complete-dive-button" onclick="createPlaylist('<%= item.artist.id %>', '<%= item.artist.name %>', <%= index %>)">
+                                Create Playlist
+                            </button>
+                        </div>
+                    <% } else { %>
+                        <div class="missing-tracks">
+                            <p style="color: var(--indian-yellow); font-family: 'IBM Plex Mono', monospace;">
+                                You've heard all of this artist's top tracks!
+                            </p>
+                        </div>
+                    <% } %>
+                </div>
+            <% }) %>
+        <% } %>
+    </div>
+
+    <script>
+        function changeTimeRange() {
+            const timeRange = document.getElementById('timeRange').value;
+            window.location.href = `/get-artist-dive?time_range=${timeRange}`;
+        }
+
+        function showPlaylistForm(artistId, artistName, index) {
+            const form = document.getElementById(`playlist-form-${index}`);
+            form.classList.add('active');
+        }
+
+        async function createPlaylist(artistId, artistName, index) {
+            const playlistNameInput = document.getElementById(`playlist-name-${index}`);
+            const playlistName = playlistNameInput.value.trim();
+            const button = playlistNameInput.nextElementSibling;
+            
+            button.disabled = true;
+            button.textContent = 'Creating...';
+
+            try {
+                const response = await fetch(`/create-artist-playlist/${artistId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        name: playlistName,
+                        artistName: artistName
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    button.textContent = 'Playlist Created!';
+                    button.style.background = '#1DB954';
+                    if (data.playlistUrl) {
+                        setTimeout(() => {
+                            window.open(data.playlistUrl, '_blank');
+                        }, 500);
+                    }
+                } else {
+                    button.textContent = 'Error - Try Again';
+                    button.style.background = '#e74c3c';
+                    alert(data.message || 'Error creating playlist');
+                    setTimeout(() => {
+                        button.disabled = false;
+                        button.textContent = 'Create Playlist';
+                        button.style.background = '';
+                    }, 2000);
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                button.textContent = 'Error - Try Again';
+                button.style.background = '#e74c3c';
+                alert('Error creating playlist. Please try again.');
+                setTimeout(() => {
+                    button.disabled = false;
+                    button.textContent = 'Create Playlist';
+                    button.style.background = '';
+                }, 2000);
+            }
+        }
+    </script>
+</body>
+</html>
+

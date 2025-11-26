@@ -1,0 +1,95 @@
+<header class="page-header">
+    <div class="header-content">
+        <a href="/menu" class="back-button">
+            <span class="back-arrow">←</span> Return to Menu
+        </a>
+        <div class="header-title">
+            <h1><%= title %></h1>
+            <% if (typeof subtitle !== 'undefined' && subtitle) { %>
+                <p class="header-subtitle"><%= subtitle %></p>
+            <% } %>
+        </div>
+    </div>
+</header>
+
+<style>
+    :root {
+        --acajou: #5F3D1F;
+        --old-burgundy: #372C2E;
+        --white: #FFFFFF;
+        --indian-yellow: #CB984F;
+        --russet: #7A431D;
+        --dark-bg: #2A1F1C;
+        --light-bg: #3D2E28;
+        --bronze-dark: #563727;
+    }
+
+    .page-header {
+        background: linear-gradient(135deg, var(--old-burgundy) 0%, var(--bronze-dark) 100%);
+        padding: 30px 20px;
+        border-radius: 15px;
+        margin-bottom: 30px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6);
+        border: 1px solid rgba(203, 152, 79, 0.2);
+    }
+
+    .header-content {
+        max-width: 1200px;
+        margin: 0 auto;
+        position: relative;
+    }
+
+    .back-button {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 20px;
+        background-color: rgba(42, 31, 28, 0.5);
+        color: var(--white);
+        text-decoration: none;
+        border-radius: 8px;
+        border: 1px solid var(--russet);
+        transition: all 0.3s ease;
+        font-weight: 600;
+        margin-bottom: 15px;
+    }
+
+    .back-button:hover {
+        background-color: var(--russet);
+        border-color: var(--indian-yellow);
+        transform: translateX(-3px);
+    }
+
+    .back-arrow {
+        font-size: 1.26em;
+        transition: transform 0.3s;
+    }
+
+    .back-button:hover .back-arrow {
+        transform: translateX(-3px);
+    }
+
+    .header-title {
+        text-align: center;
+    }
+
+    .header-title h1 {
+        color: var(--white);
+        font-size: 2.625em;
+        margin: 0;
+        text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+        font-weight: 600;
+        font-family: 'IBM Plex Mono', monospace;
+        letter-spacing: 1px;
+    }
+
+    .header-subtitle {
+        color: rgba(255, 255, 255, 0.85);
+        font-size: 1.155em;
+        margin: 15px auto 0;
+        text-align: center;
+        font-family: 'IBM Plex Mono', monospace;
+        max-width: 600px;
+    }
+</style>
+

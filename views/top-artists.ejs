@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Your Top Artists</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/style.css">
+    <%- include('bronze-styles') %>
+    <style>
+        .artist-item {
+            display: flex;
+            align-items: center;
+            background: linear-gradient(135deg, var(--bronze-dark) 0%, var(--old-burgundy) 100%);
+            margin: 15px 0;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.4);
+            border: 1px solid rgba(203, 152, 79, 0.2);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .artist-item:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6);
+            border-color: rgba(203, 152, 79, 0.4);
+        }
+
+        .artist-number {
+            font-size: 1.575em;
+            font-weight: bold;
+            color: var(--indian-yellow);
+            min-width: 40px;
+            text-align: center;
+            margin-right: 15px;
+        }
+
+        .artist-image {
+            border-radius: 50%;
+            margin-right: 20px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+            object-fit: cover;
+        }
+
+        .artist-content {
+            flex-grow: 1;
+        }
+
+        .artist-name {
+            font-size: 1.365em;
+            color: #fff;
+            margin-bottom: 8px;
+            font-weight: 600;
+        }
+
+        .artist-genres {
+            color: var(--indian-yellow);
+            font-size: 0.945em;
+            margin-bottom: 10px;
+        }
+
+        .artist-stats {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+        }
+
+        .stat-item {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .stat-label {
+            color: #888;
+            font-size: 0.7875em;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .stat-value {
+            color: #b3b3b3;
+            font-size: 0.9975em;
+            font-weight: 600;
+        }
+
+        .top-track {
+            background: var(--dark-bg);
+            padding: 12px;
+            border-radius: 8px;
+            margin-top: 10px;
+            border-left: 3px solid var(--indian-yellow);
+        }
+
+        .top-track-label {
+            color: #888;
+            font-size: 0.84em;
+            margin-bottom: 5px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .top-track-name {
+            color: #fff;
+            font-weight: 600;
+            margin-bottom: 3px;
+        }
+
+        .top-track-album {
+            color: #b3b3b3;
+            font-size: 0.945em;
+        }
+
+        .spotify-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 5px 12px;
+            background-color: #1DB954;
+            color: #121212;
+            text-decoration: none;
+            border-radius: 15px;
+            font-size: 0.84em;
+            font-weight: bold;
+            transition: background-color 0.2s;
+            margin-left: 10px;
+        }
+
+        .spotify-link:hover {
+            background-color: #1ed760;
+        }
+
+        .popularity-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            background-color: rgba(203, 152, 79, 0.2);
+            color: var(--indian-yellow);
+            border-radius: 12px;
+            font-size: 0.8925em;
+            font-weight: bold;
+            margin-left: 10px;
+        }
+
+        .no-artists {
+            text-align: center;
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 1.26em;
+            padding: 40px;
+            background: linear-gradient(135deg, var(--bronze-dark) 0%, var(--old-burgundy) 100%);
+            border-radius: 15px;
+            margin: 20px 0;
+            border: 1px solid rgba(203, 152, 79, 0.2);
+        }
+
+        .stats-summary {
+            background: linear-gradient(135deg, var(--bronze-dark) 0%, var(--old-burgundy) 100%);
+            padding: 25px;
+            border-radius: 15px;
+            margin-bottom: 30px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 20px;
+            text-align: center;
+            border: 1px solid rgba(203, 152, 79, 0.2);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+        }
+
+        .stats-summary .stat {
+            padding: 10px;
+        }
+
+        .stats-summary .stat-label {
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 0.945em;
+            margin-bottom: 5px;
+            font-weight: 300;
+        }
+
+        .stats-summary .stat-value {
+            color: var(--indian-yellow);
+            font-size: 1.575em;
+            font-weight: bold;
+        }
+
+        .time-range-selector {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            margin-bottom: 25px;
+            padding: 15px;
+            background: linear-gradient(135deg, var(--bronze-dark) 0%, var(--old-burgundy) 100%);
+            border-radius: 10px;
+            border: 1px solid rgba(203, 152, 79, 0.2);
+        }
+
+        .time-range-dropdown {
+            padding: 8px 15px;
+            border-radius: 8px;
+            border: 1px solid rgba(203, 152, 79, 0.3);
+            background-color: var(--dark-bg);
+            color: var(--white);
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.945em;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .time-range-dropdown:hover {
+            border-color: var(--indian-yellow);
+            background-color: var(--light-bg);
+        }
+
+        .time-range-dropdown:focus {
+            outline: none;
+            border-color: var(--indian-yellow);
+            box-shadow: 0 0 0 2px rgba(203, 152, 79, 0.2);
+        }
+
+        @media (max-width: 768px) {
+            .artist-item {
+                flex-wrap: wrap;
+            }
+            
+            .artist-stats {
+                margin-left: 95px;
+            }
+
+            .time-range-selector {
+                justify-content: center;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="abstract-lines">
+        <div class="line-pattern line-pattern-1"></div>
+        <div class="line-pattern line-pattern-2"></div>
+        <div class="line-pattern line-pattern-3"></div>
+    </div>
+    <div class="container">
+        <%- include('shared-header', { title: 'Your Top Artists', subtitle: 'Explore your favorite musicians' }) %>
+        
+        <!-- Time Range Selector -->
+        <div class="time-range-selector">
+            <label for="time-range-select" style="color: var(--white); margin-right: 10px; font-family: 'IBM Plex Mono', monospace;">Time Range:</label>
+            <select id="time-range-select" class="time-range-dropdown">
+                <option value="short_term" <%= typeof timeRange !== 'undefined' && timeRange === 'short_term' ? 'selected' : '' %>>Last 4 Weeks</option>
+                <option value="medium_term" <%= (typeof timeRange === 'undefined' || timeRange === 'medium_term') ? 'selected' : '' %>>Last 6 Months</option>
+                <option value="long_term" <%= typeof timeRange !== 'undefined' && timeRange === 'long_term' ? 'selected' : '' %>>All Time</option>
+            </select>
+        </div>
+
+        <% if (typeof artists !== 'undefined' && Array.isArray(artists) && artists.length > 0) { %>
+            <% 
+                const validArtists = artists.filter(a => a && a.id);
+                const allGenres = new Set();
+                validArtists.forEach(a => {
+                    if (a.genres && Array.isArray(a.genres)) {
+                        a.genres.forEach(g => allGenres.add(g));
+                    }
+                });
+                const avgPopularity = validArtists.length > 0
+                    ? Math.round(validArtists.reduce((sum, a) => sum + (a.popularity || 0), 0) / validArtists.length)
+                    : 0;
+                const avgFollowers = validArtists.length > 0
+                    ? Math.round(validArtists.reduce((sum, a) => sum + (a.followers && a.followers.total ? a.followers.total : 0), 0) / validArtists.length / 1000)
+                    : 0;
+            %>
+            
+            <!-- Stats Summary -->
+            <div class="stats-summary">
+                <div class="stat">
+                    <div class="stat-label">TOTAL ARTISTS</div>
+                    <div class="stat-value"><%= validArtists.length %></div>
+                </div>
+                <div class="stat">
+                    <div class="stat-label">AVG POPULARITY</div>
+                    <div class="stat-value"><%= avgPopularity %>%</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-label">UNIQUE GENRES</div>
+                    <div class="stat-value"><%= allGenres.size %></div>
+                </div>
+                <div class="stat">
+                    <div class="stat-label">AVG FOLLOWERS</div>
+                    <div class="stat-value"><%= avgFollowers %>K</div>
+                </div>
+            </div>
+
+            <!-- Artists List -->
+            <ul>
+                <% validArtists.forEach((artist, index) => { %>
+                    <li class="artist-item">
+                        <div class="artist-number"><%= index + 1 %></div>
+                        
+                        <% if (artist.images && Array.isArray(artist.images) && artist.images.length > 0 && artist.images[0] && artist.images[0].url) { %>
+                            <img src="<%= artist.images[0].url %>" 
+                                 alt="<%= artist.name || 'Artist' %>" 
+                                 width="100" 
+                                 height="100"
+                                 class="artist-image">
+                        <% } else { %>
+                            <div style="width: 100px; height: 100px; background-color: #333; border-radius: 50%; margin-right: 20px; display: flex; align-items: center; justify-content: center; color: #666; font-size: 2.1em;">Artist</div>
+                        <% } %>
+                        
+                        <div class="artist-content">
+                            <div class="artist-name">
+                                <%= artist.name || 'Unknown Artist' %>
+                                <% if (typeof artist.popularity === 'number') { %>
+                                    <span class="popularity-badge"><%= artist.popularity %>% Popular</span>
+                                <% } %>
+                                <% if (artist.external_urls && artist.external_urls.spotify) { %>
+                                    <a href="<%= artist.external_urls.spotify %>" 
+                                       target="_blank" 
+                                       rel="noopener noreferrer"
+                                       class="spotify-link"
+                                       title="Open in Spotify">
+                                        View
+                                    </a>
+                                <% } %>
+                            </div>
+
+                            <% if (artist.genres && Array.isArray(artist.genres) && artist.genres.length > 0) { %>
+                                <div class="artist-genres">
+                                    <%= artist.genres.slice(0, 3).join(', ') %><% if (artist.genres.length > 3) { %>, +<%= artist.genres.length - 3 %> more<% } %>
+                                </div>
+                            <% } %>
+
+                            <div class="artist-stats">
+                                <% if (artist.followers && typeof artist.followers.total === 'number') { %>
+                                    <div class="stat-item">
+                                        <span class="stat-label">Followers</span>
+                                        <span class="stat-value">
+                                            <%= artist.followers.total >= 1000000 
+                                                ? (artist.followers.total / 1000000).toFixed(1) + 'M' 
+                                                : artist.followers.total >= 1000 
+                                                    ? (artist.followers.total / 1000).toFixed(0) + 'K' 
+                                                    : artist.followers.total %>
+                                        </span>
+                                    </div>
+                                <% } %>
+                            </div>
+
+                            <% if (artist.mostListenedTrack && artist.mostListenedTrack.name) { %>
+                                <div class="top-track">
+                                    <div class="top-track-label">Most Popular Track</div>
+                                    <div class="top-track-name"><%= artist.mostListenedTrack.name %></div>
+                                    <% if (artist.mostListenedTrack.album && artist.mostListenedTrack.album.name) { %>
+                                        <div class="top-track-album">
+                                            Album: <%= artist.mostListenedTrack.album.name %>
+                                        </div>
+                                    <% } %>
+                                </div>
+                            <% } %>
+                        </div>
+                    </li>
+                <% }) %>
+            </ul>
+        <% } else { %>
+            <div class="no-artists">
+                <h2>No artists found</h2>
+                <p>Start listening to music on Spotify to see your top artists here!</p>
+            </div>
+        <% } %>
+    </div>
+
+    <script>
+        document.getElementById('time-range-select').addEventListener('change', function() {
+            const timeRange = this.value;
+            window.location.href = `/get-top-artists?time_range=${timeRange}`;
+        });
+    </script>
+</body>
+</html>

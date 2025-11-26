@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>myi - Music Insights</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/style.css">
+    <style>
+        /* Bronze Color Palette - 10% darker, browner */
+        :root {
+            --acajou: #5F3D1F;
+            --old-burgundy: #372C2E;
+            --white: #FFFFFF;
+            --indian-yellow: #CB984F;
+            --russet: #7A431D;
+            --dark-bg: #2A1F1C;
+            --light-bg: #3D2E28;
+            --bronze-dark: #563727;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'IBM Plex Mono', monospace;
+            background: var(--old-burgundy);
+            color: var(--white);
+            min-height: 100vh;
+            padding: 0;
+            position: relative;
+            overflow-x: hidden;
+        }
+
+        /* Abstract line patterns */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: 
+                radial-gradient(ellipse at 20% 80%, rgba(203, 152, 79, 0.08) 0%, transparent 50%),
+                radial-gradient(ellipse at 80% 20%, rgba(203, 152, 79, 0.06) 0%, transparent 50%);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .abstract-lines {
+            position: fixed;
+            width: 100%;
+            height: 100%;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+            z-index: 1;
+            overflow: hidden;
+        }
+
+        .line-pattern {
+            position: absolute;
+            border: 1px solid rgba(203, 152, 79, 0.15);
+            border-radius: 50%;
+        }
+
+        .line-pattern-1 {
+            width: 800px;
+            height: 800px;
+            top: -400px;
+            left: -200px;
+            border-top: none;
+            border-right: none;
+        }
+
+        .line-pattern-2 {
+            width: 600px;
+            height: 600px;
+            bottom: -300px;
+            right: -150px;
+            border-bottom: none;
+            border-left: none;
+        }
+
+        .line-pattern-3 {
+            width: 1000px;
+            height: 1000px;
+            top: 50%;
+            right: -500px;
+            border-top: none;
+            border-left: none;
+            transform: rotate(45deg);
+        }
+
+        .loading-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(42, 31, 28, 0.95);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+        }
+
+        .loading-overlay.active {
+            display: flex;
+        }
+
+        .spinner {
+            border: 4px solid var(--light-bg);
+            border-top: 4px solid var(--indian-yellow);
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin-bottom: 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .loading-text {
+            color: var(--indian-yellow);
+            font-size: 1.2em;
+            text-align: center;
+            margin-top: 10px;
+        }
+
+        .loading-subtext {
+            color: #b3b3b3;
+            font-size: 0.9em;
+            margin-top: 5px;
+        }
+
+        .result-message {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 8px;
+            display: none;
+        }
+
+        .result-message.success {
+            background-color: rgba(203, 152, 79, 0.2);
+            border: 1px solid var(--indian-yellow);
+            color: var(--indian-yellow);
+        }
+
+        .result-message.error {
+            background-color: rgba(255, 75, 75, 0.2);
+            border: 1px solid #ff4b4b;
+            color: #ff4b4b;
+        }
+
+        .logout-button {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background-color: var(--old-burgundy);
+            color: var(--white);
+            padding: 10px 20px;
+            border: 1px solid var(--russet);
+            border-radius: 8px;
+            text-decoration: none;
+            transition: all 0.3s;
+            font-weight: 600;
+            z-index: 100;
+        }
+
+        .logout-button:hover {
+            background-color: var(--russet);
+            border-color: var(--indian-yellow);
+            transform: translateY(-2px);
+        }
+
+        .main-container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 40px 20px;
+            min-height: 100vh;
+            position: relative;
+            z-index: 2;
+        }
+
+        .brand-header {
+            text-align: center;
+            margin-bottom: 80px;
+            padding: 60px 0;
+            position: relative;
+        }
+
+        .brand-logo {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 9.45em;
+            font-weight: 700;
+            letter-spacing: 4px;
+            color: var(--white);
+            text-shadow: 2px 2px 8px rgba(0, 0, 0, 0.5);
+            margin-bottom: 15px;
+            position: relative;
+            display: inline-block;
+        }
+
+        .brand-tagline {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 1.365em;
+            color: rgba(255, 255, 255, 0.7);
+            letter-spacing: 3px;
+            font-weight: 300;
+        }
+
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 30px;
+            margin-bottom: 60px;
+        }
+
+        .feature-card {
+            background: linear-gradient(135deg, var(--bronze-dark) 0%, var(--old-burgundy) 100%);
+            border: 1px solid rgba(203, 152, 79, 0.2);
+            border-radius: 20px;
+            padding: 50px 40px;
+            text-decoration: none;
+            color: var(--white);
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+            display: flex;
+            flex-direction: column;
+            min-height: 280px;
+        }
+
+        .feature-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(203, 152, 79, 0.08), transparent);
+            transition: left 0.6s;
+        }
+
+        .feature-card:hover::before {
+            left: 100%;
+        }
+
+        .feature-card:hover {
+            transform: translateY(-8px);
+            border-color: rgba(203, 152, 79, 0.4);
+            box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
+        }
+
+        .feature-title {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 2.1em;
+            color: var(--white);
+            margin-bottom: 20px;
+            letter-spacing: 1px;
+            text-align: center;
+            font-weight: 600;
+        }
+
+        .feature-description {
+            font-size: 1.05em;
+            line-height: 1.8;
+            color: rgba(255, 255, 255, 0.75);
+            text-align: center;
+            flex-grow: 1;
+            display: flex;
+            align-items: center;
+            font-weight: 300;
+        }
+
+        .playlist-section {
+            margin-top: 80px;
+            padding: 50px;
+            background: linear-gradient(135deg, var(--old-burgundy) 0%, var(--bronze-dark) 100%);
+            border-radius: 25px;
+            border: 1px solid rgba(203, 152, 79, 0.2);
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+            position: relative;
+        }
+
+        .section-title {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 2.625em;
+            color: var(--white);
+            margin-bottom: 30px;
+            text-align: center;
+            letter-spacing: 2px;
+            font-weight: 600;
+        }
+
+        .playlist-cards-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 30px;
+            margin-top: 30px;
+        }
+
+        .playlist-card {
+            background: linear-gradient(135deg, var(--bronze-dark) 0%, var(--old-burgundy) 100%);
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+            transition: transform 0.2s, box-shadow 0.2s;
+            border: 1px solid rgba(203, 152, 79, 0.2);
+        }
+
+        .playlist-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.5);
+            border-color: rgba(203, 152, 79, 0.4);
+        }
+
+        .playlist-card-header h3 {
+            color: var(--white);
+            margin-bottom: 15px;
+            font-size: 1.575em;
+            font-family: 'IBM Plex Mono', monospace;
+            letter-spacing: 1px;
+            font-weight: 600;
+        }
+
+        .playlist-description {
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 0.9975em;
+            margin-bottom: 25px;
+            line-height: 1.6;
+            font-weight: 300;
+        }
+
+        .playlist-form-single {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .playlist-input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .playlist-input-group label {
+            color: var(--white);
+            font-size: 0.9975em;
+            font-weight: 600;
+        }
+
+        .playlist-input-group input {
+            width: 100%;
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px solid rgba(203, 152, 79, 0.3);
+            background-color: var(--dark-bg);
+            color: var(--white);
+            font-size: 1.05em;
+            transition: border-color 0.3s;
+        }
+
+        .playlist-input-group input:focus {
+            outline: none;
+            border-color: var(--indian-yellow);
+        }
+
+        .playlist-input-group input::placeholder {
+            color: #666;
+        }
+
+        .playlist-submit-button {
+            background: linear-gradient(135deg, var(--indian-yellow) 0%, var(--russet) 100%);
+            color: var(--white);
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 1.05em;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+            width: 100%;
+            box-shadow: 0 4px 12px rgba(203, 152, 79, 0.3);
+        }
+
+        .playlist-submit-button:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(203, 152, 79, 0.5);
+        }
+
+        .playlist-submit-button:disabled {
+            background: var(--light-bg);
+            color: #888;
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+
+        .playlist-result-message {
+            margin-top: 15px;
+            padding: 12px;
+            border-radius: 8px;
+            display: none;
+            font-size: 0.9em;
+        }
+
+        .playlist-result-message.success {
+            background-color: rgba(203, 152, 79, 0.2);
+            border: 1px solid var(--indian-yellow);
+            color: var(--indian-yellow);
+        }
+
+        .playlist-result-message.error {
+            background-color: rgba(255, 75, 75, 0.2);
+            border: 1px solid #ff4b4b;
+            color: #ff4b4b;
+        }
+
+        @media (max-width: 768px) {
+            .brand-logo {
+                font-size: 6em;
+                letter-spacing: 2px;
+            }
+
+            .feature-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .playlist-cards-container {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="abstract-lines">
+        <div class="line-pattern line-pattern-1"></div>
+        <div class="line-pattern line-pattern-2"></div>
+        <div class="line-pattern line-pattern-3"></div>
+    </div>
+
+    <a href="/logout" class="logout-button">Logout</a>
+    
+    <div class="main-container">
+        <div class="brand-header">
+            <div class="brand-logo">myi</div>
+            <div class="brand-tagline">Music Insights</div>
+        </div>
+
+        <div class="feature-grid">
+            <a href="/dashboard" class="feature-card">
+                <div class="feature-title">Listening Insights</div>
+                <div class="feature-description">
+                    Visualize your listening patterns by time of day and discover your top genres from recent activity.
+                </div>
+            </a>
+
+            <a href="/get-top-tracks" class="feature-card">
+                <div class="feature-title">Top Tracks</div>
+                <div class="feature-description">
+                    See your most played songs over different time periods with detailed statistics and popularity metrics.
+                </div>
+            </a>
+
+            <a href="/get-top-artists" class="feature-card">
+                <div class="feature-title">Top Artists</div>
+                <div class="feature-description">
+                    Discover your favorite artists and their most popular tracks with genre information.
+                </div>
+            </a>
+
+            <a href="/get-artist-dive" class="feature-card">
+                <div class="feature-title">Artist Deep Dive</div>
+                <div class="feature-description">
+                    Explore how much of your favorite artists' discographies you've discovered and find new tracks.
+                </div>
+            </a>
+        </div>
+
+                <div class="playlist-section">
+            <h2 class="section-title">Create Vibe-Oriented Playlists</h2>
+            <p style="color: rgba(255, 255, 255, 0.7); margin-bottom: 40px; text-align: center; font-size: 1.1em; font-weight: 300;">
+                Create individual playlists by analyzing your liked songs. Each playlist is created separately for better performance.
+            </p>
+
+            <div class="playlist-cards-container">
+                <div class="playlist-card">
+                    <div class="playlist-card-header">
+                        <h3>Energetic</h3>
+                    </div>
+                    <p class="playlist-description">
+                        High energy, positive songs perfect for workouts, parties, or when you need a boost. Songs with high valence and energy.
+                    </p>
+                    <form id="energetic-form" class="playlist-form-single">
+                        <div class="playlist-input-group">
+                            <label for="energetic-name">Playlist Name:</label>
+                            <input type="text" id="energetic-name" name="name" placeholder="Energetic Vibes" maxlength="100" required />
+                        </div>
+                        <button type="submit" class="playlist-submit-button" data-category="energetic">
+                            Create Playlist
+                        </button>
+                    </form>
+                    <div id="energetic-result" class="playlist-result-message"></div>
+                </div>
+
+                <div class="playlist-card">
+                    <div class="playlist-card-header">
+                        <h3>Mellow</h3>
+                    </div>
+                    <p class="playlist-description">
+                        Balanced, moderate energy songs for relaxing, studying, or background music. Songs that don't fit the energetic or chill categories.
+                    </p>
+                    <form id="mellow-form" class="playlist-form-single">
+                        <div class="playlist-input-group">
+                            <label for="mellow-name">Playlist Name:</label>
+                            <input type="text" id="mellow-name" name="name" placeholder="Mellow Tunes" maxlength="100" required />
+                        </div>
+                        <button type="submit" class="playlist-submit-button" data-category="mellow">
+                            Create Playlist
+                        </button>
+                    </form>
+                    <div id="mellow-result" class="playlist-result-message"></div>
+                </div>
+
+                <div class="playlist-card">
+                    <div class="playlist-card-header">
+                        <h3>Chill</h3>
+                    </div>
+                    <p class="playlist-description">
+                        Low energy, relaxing songs perfect for unwinding, meditation, or quiet moments. Songs with low valence and energy.
+                    </p>
+                    <form id="chill-form" class="playlist-form-single">
+                        <div class="playlist-input-group">
+                            <label for="chill-name">Playlist Name:</label>
+                            <input type="text" id="chill-name" name="name" placeholder="Chill Vibes" maxlength="100" required />
+                        </div>
+                        <button type="submit" class="playlist-submit-button" data-category="chill">
+                            Create Playlist
+                        </button>
+                    </form>
+                    <div id="chill-result" class="playlist-result-message"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="loading-overlay" class="loading-overlay">
+        <div class="spinner"></div>
+        <div class="loading-text" id="loading-text">Creating playlists...</div>
+        <div class="loading-subtext" id="loading-subtext">This may take a minute for large libraries</div>
+    </div>
+
+    <script>
+        const loadingOverlay = document.getElementById('loading-overlay');
+        const loadingText = document.getElementById('loading-text');
+        const loadingSubtext = document.getElementById('loading-subtext');
+
+        const endpoints = {
+            energetic: '/create-playlist/energetic',
+            mellow: '/create-playlist/mellow',
+            chill: '/create-playlist/chill'
+        };
+
+        const categoryNames = {
+            energetic: 'Energetic',
+            mellow: 'Mellow',
+            chill: 'Chill'
+        };
+
+        function setupPlaylistForm(formId, category) {
+            const form = document.getElementById(formId);
+            const resultDiv = document.getElementById(`${category}-result`);
+            const submitButton = form.querySelector('.playlist-submit-button');
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+                const formData = new FormData(form);
+                const playlistName = formData.get('name') || `${categoryNames[category]} Vibes`;
+
+                submitButton.disabled = true;
+                submitButton.textContent = 'Creating...';
+                resultDiv.style.display = 'none';
+            loadingOverlay.classList.add('active');
+                loadingText.textContent = `Creating ${categoryNames[category]} playlist...`;
+                loadingSubtext.textContent = 'This may take a minute for large libraries';
+
+                try {
+                    const response = await fetch(endpoints[category], {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: new URLSearchParams(formData)
+                });
+
+                const data = await response.json();
+                loadingOverlay.classList.remove('active');
+
+                if (data.success) {
+                        resultDiv.className = 'playlist-result-message success';
+                        resultDiv.style.display = 'block';
+                        resultDiv.innerHTML = `
+                            <strong>${data.message}</strong><br>
+                            <small>Total songs analyzed: ${data.details.totalSongs} | 
+                            Tracks in playlist: ${data.details.trackCount}</small><br>
+                            <small>Check your Spotify app to see your new playlist!</small>
+                        `;
+                        form.reset();
+                    } else {
+                        throw new Error(data.message || 'Unknown error occurred');
+                    }
+                } catch (error) {
+                    loadingOverlay.classList.remove('active');
+                    resultDiv.className = 'playlist-result-message error';
+                    resultDiv.style.display = 'block';
+                    resultDiv.innerHTML = `<strong>Error:</strong> ${error.message}`;
+                } finally {
+                    submitButton.disabled = false;
+                    submitButton.textContent = `Create ${categoryNames[category]} Playlist`;
+                }
+            });
+        }
+
+        setupPlaylistForm('energetic-form', 'energetic');
+        setupPlaylistForm('mellow-form', 'mellow');
+        setupPlaylistForm('chill-form', 'chill');
+
+        const cache = new Map();
+        const precacheDelay = 500;
+        let precacheTimeout = null;
+
+        async function precachePage(url) {
+            if (cache.has(url)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(url, {
+                    method: 'GET',
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest'
+                    }
+                });
+                
+                if (response.ok) {
+                    const html = await response.text();
+                    cache.set(url, html);
+                    console.log(`Precached: ${url}`);
+                }
+            } catch (error) {
+                console.log(`Precache failed for ${url}:`, error);
+            }
+        }
+
+        const featureCards = document.querySelectorAll('.feature-card');
+        featureCards.forEach(card => {
+            card.addEventListener('mouseenter', () => {
+                clearTimeout(precacheTimeout);
+                const url = card.getAttribute('href');
+                if (url && !cache.has(url)) {
+                    precacheTimeout = setTimeout(() => {
+                        precachePage(url);
+                    }, precacheDelay);
+                }
+            });
+
+            card.addEventListener('mouseleave', () => {
+                clearTimeout(precacheTimeout);
+            });
+        });
+
+        setTimeout(() => {
+            const navUrls = ['/dashboard', '/get-top-tracks', '/get-top-artists', '/get-artist-dive'];
+            navUrls.forEach(url => {
+                setTimeout(() => precachePage(url), Math.random() * 2000);
+            });
+        }, 2000);
+    </script>
+</body>
+</html>

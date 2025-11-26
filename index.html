@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>myi - Music Insights</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <style>
+        :root {
+            --acajou: #5F3D1F;
+            --old-burgundy: #372C2E;
+            --white: #FFFFFF;
+            --indian-yellow: #CB984F;
+            --russet: #7A431D;
+            --dark-bg: #2A1F1C;
+            --light-bg: #3D2E28;
+            --bronze-dark: #563727;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'IBM Plex Mono', monospace;
+            background: var(--old-burgundy);
+            color: var(--white);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            position: relative;
+            overflow-x: hidden;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: 
+                radial-gradient(ellipse at 20% 80%, rgba(203, 152, 79, 0.08) 0%, transparent 50%),
+                radial-gradient(ellipse at 80% 20%, rgba(203, 152, 79, 0.06) 0%, transparent 50%);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .abstract-lines {
+            position: fixed;
+            width: 100%;
+            height: 100%;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+            z-index: 1;
+            overflow: hidden;
+        }
+
+        .line-pattern {
+            position: absolute;
+            border: 1px solid rgba(203, 152, 79, 0.15);
+            border-radius: 50%;
+        }
+
+        .line-pattern-1 {
+            width: 800px;
+            height: 800px;
+            top: -400px;
+            left: -200px;
+            border-top: none;
+            border-right: none;
+        }
+
+        .line-pattern-2 {
+            width: 600px;
+            height: 600px;
+            bottom: -300px;
+            right: -150px;
+            border-bottom: none;
+            border-left: none;
+        }
+
+        .line-pattern-3 {
+            width: 1000px;
+            height: 1000px;
+            top: 50%;
+            right: -500px;
+            border-top: none;
+            border-left: none;
+            transform: rotate(45deg);
+        }
+
+        .login-container {
+            text-align: center;
+            max-width: 800px;
+            width: 100%;
+            position: relative;
+            z-index: 2;
+        }
+
+        .brand-logo {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 10.5em;
+            font-weight: 700;
+            letter-spacing: 8px;
+            color: var(--white);
+            text-shadow: 2px 2px 8px rgba(0, 0, 0, 0.5);
+            margin-bottom: 20px;
+            font-style: italic;
+        }
+
+        .brand-tagline {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 1.68em;
+            color: rgba(255, 255, 255, 0.8);
+            font-style: italic;
+            letter-spacing: 3px;
+            margin-bottom: 50px;
+        }
+
+        .login-button {
+            background: #1DB954;
+            color: var(--white);
+            padding: 18px 50px;
+            border: none;
+            border-radius: 12px;
+            font-size: 1.365em;
+            font-weight: bold;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+            transition: all 0.3s ease;
+            box-shadow: 0 6px 20px rgba(29, 185, 84, 0.4);
+            font-family: 'IBM Plex Mono', monospace;
+            letter-spacing: 1px;
+        }
+
+        .login-button:hover {
+            background: #1AA34A;
+            transform: translateY(-4px);
+            box-shadow: 0 10px 30px rgba(29, 185, 84, 0.6);
+        }
+
+        .features {
+            margin-top: 60px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 25px;
+        }
+
+        .feature-card {
+            background: linear-gradient(135deg, var(--bronze-dark) 0%, var(--old-burgundy) 100%);
+            padding: 30px 20px;
+            border-radius: 15px;
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+            transition: transform 0.3s, box-shadow 0.3s;
+            border: 1px solid rgba(203, 152, 79, 0.2);
+        }
+
+        .feature-card:hover {
+            transform: translateY(-8px);
+            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.6);
+            border-color: rgba(203, 152, 79, 0.4);
+        }
+
+        .feature-card h3 {
+            color: var(--white);
+            margin-bottom: 12px;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 1.575em;
+            letter-spacing: 1px;
+            font-weight: 600;
+        }
+
+        .feature-card p {
+            color: rgba(255, 255, 255, 0.75);
+            font-size: 0.9975em;
+            margin: 0;
+            line-height: 1.6;
+            font-weight: 300;
+        }
+
+        @media (max-width: 768px) {
+            .brand-logo {
+                font-size: 6.3em;
+                letter-spacing: 4px;
+            }
+
+            .brand-tagline {
+                font-size: 1.26em;
+            }
+
+            .login-button {
+                padding: 15px 40px;
+                font-size: 1.155em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="abstract-lines">
+        <div class="line-pattern line-pattern-1"></div>
+        <div class="line-pattern line-pattern-2"></div>
+        <div class="line-pattern line-pattern-3"></div>
+    </div>
+    <div class="login-container">
+        <div class="brand-logo">myi</div>
+        <div class="brand-tagline">Music Insights & Intelligence</div>
+        <a href="/auth/spotify" class="login-button">Login with Spotify</a>
+        
+        <div class="features">
+            <div class="feature-card">
+                <h3>Listening Insights</h3>
+                <p>Visualize your listening patterns by time of day and discover your top genres from recent activity.</p>
+            </div>
+            <div class="feature-card">
+                <h3>Top Tracks</h3>
+                <p>See your most played songs over different time periods with detailed statistics.</p>
+            </div>
+            <div class="feature-card">
+                <h3>Top Artists</h3>
+                <p>Discover your favorite artists and their most popular tracks.</p>
+            </div>
+            <div class="feature-card">
+                <h3>Smart Playlists</h3>
+                <p>Automatically categorize your liked songs into mood-based playlists.</p>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

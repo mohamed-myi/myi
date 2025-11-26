@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Your Top Spotify Tracks</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/style.css">
+    <style>
+        :root {
+            --acajou: #5F3D1F;
+            --old-burgundy: #372C2E;
+            --white: #FFFFFF;
+            --indian-yellow: #CB984F;
+            --russet: #7A431D;
+            --dark-bg: #2A1F1C;
+            --light-bg: #3D2E28;
+            --bronze-dark: #563727;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'IBM Plex Mono', monospace;
+            background: var(--old-burgundy);
+            color: var(--white);
+            min-height: 100vh;
+            padding: 20px;
+            position: relative;
+            overflow-x: hidden;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: 
+                radial-gradient(ellipse at 20% 80%, rgba(203, 152, 79, 0.08) 0%, transparent 50%),
+                radial-gradient(ellipse at 80% 20%, rgba(203, 152, 79, 0.06) 0%, transparent 50%);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .abstract-lines {
+            position: fixed;
+            width: 100%;
+            height: 100%;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+            z-index: 1;
+            overflow: hidden;
+        }
+
+        .line-pattern {
+            position: absolute;
+            border: 1px solid rgba(203, 152, 79, 0.15);
+            border-radius: 50%;
+        }
+
+        .line-pattern-1 {
+            width: 800px;
+            height: 800px;
+            top: -400px;
+            left: -200px;
+            border-top: none;
+            border-right: none;
+        }
+
+        .line-pattern-2 {
+            width: 600px;
+            height: 600px;
+            bottom: -300px;
+            right: -150px;
+            border-bottom: none;
+            border-left: none;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            position: relative;
+            z-index: 2;
+        }
+
+        .track-item {
+            display: flex;
+            align-items: center;
+            background: linear-gradient(135deg, var(--bronze-dark) 0%, var(--old-burgundy) 100%);
+            margin: 15px 0;
+            padding: 15px;
+            border-radius: 12px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.4);
+            border: 1px solid rgba(203, 152, 79, 0.2);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .track-item:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.6);
+            border-color: rgba(203, 152, 79, 0.4);
+        }
+
+        .track-number {
+            font-size: 1.575em;
+            font-weight: bold;
+            color: var(--indian-yellow);
+            min-width: 40px;
+            text-align: center;
+            margin-right: 15px;
+        }
+
+        .track-image {
+            border-radius: 8px;
+            margin-right: 15px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+        }
+
+        .track-info {
+            flex-grow: 1;
+        }
+
+        .track-name-row {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 20px;
+        }
+
+        .track-name {
+            font-size: 1.26em;
+            color: #fff;
+            font-weight: 600;
+            flex: 1;
+        }
+
+        .track-artist-inline {
+            color: #b3b3b3;
+            font-size: 1em;
+            white-space: nowrap;
+        }
+
+        .track-duration {
+            color: var(--indian-yellow);
+            font-size: 0.945em;
+            margin-left: 15px;
+            min-width: 50px;
+            text-align: right;
+        }
+
+        .track-popularity {
+            display: flex;
+            align-items: center;
+            margin-left: 15px;
+            min-width: 50px;
+            text-align: right;
+        }
+
+        .no-tracks {
+            text-align: center;
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 1.26em;
+            padding: 40px;
+            background: linear-gradient(135deg, var(--bronze-dark) 0%, var(--old-burgundy) 100%);
+            border-radius: 15px;
+            margin: 20px 0;
+            border: 1px solid rgba(203, 152, 79, 0.2);
+        }
+
+        .stats-summary {
+            background: linear-gradient(135deg, var(--bronze-dark) 0%, var(--old-burgundy) 100%);
+            padding: 25px;
+            border-radius: 15px;
+            margin-bottom: 30px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 20px;
+            text-align: center;
+            border: 1px solid rgba(203, 152, 79, 0.2);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+        }
+
+        .stats-summary .stat {
+            padding: 10px;
+        }
+
+        .stats-summary .stat-label {
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 0.945em;
+            margin-bottom: 5px;
+            font-weight: 300;
+        }
+
+        .stats-summary .stat-value {
+            color: var(--indian-yellow);
+            font-size: 1.575em;
+            font-weight: bold;
+        }
+
+        .spotify-link {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 8px 16px;
+            background-color: #1DB954;
+            color: #FFFFFF;
+            text-decoration: none;
+            border-radius: 8px;
+            font-size: 0.945em;
+            font-weight: bold;
+            transition: background-color 0.2s;
+            margin-left: 15px;
+            min-width: 60px;
+            white-space: nowrap;
+        }
+
+        .spotify-link:hover {
+            background-color: #1ed760;
+            transform: translateY(-1px);
+        }
+
+        .time-range-selector {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            margin-bottom: 25px;
+            padding: 15px;
+            background: linear-gradient(135deg, var(--bronze-dark) 0%, var(--old-burgundy) 100%);
+            border-radius: 10px;
+            border: 1px solid rgba(203, 152, 79, 0.2);
+        }
+
+        .time-range-dropdown {
+            padding: 8px 15px;
+            border-radius: 8px;
+            border: 1px solid rgba(203, 152, 79, 0.3);
+            background-color: var(--dark-bg);
+            color: var(--white);
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.945em;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .time-range-dropdown:hover {
+            border-color: var(--indian-yellow);
+            background-color: var(--light-bg);
+        }
+
+        .time-range-dropdown:focus {
+            outline: none;
+            border-color: var(--indian-yellow);
+            box-shadow: 0 0 0 2px rgba(203, 152, 79, 0.2);
+        }
+
+        @media (max-width: 768px) {
+            .track-item {
+                flex-wrap: wrap;
+            }
+            
+            .track-duration,
+            .track-popularity {
+                margin-left: 95px;
+                margin-top: 10px;
+            }
+
+            .track-name-row {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 4px;
+            }
+
+            .track-artist-inline {
+                white-space: normal;
+            }
+
+            .time-range-selector {
+                justify-content: center;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="abstract-lines">
+        <div class="line-pattern line-pattern-1"></div>
+        <div class="line-pattern line-pattern-2"></div>
+        <div class="line-pattern line-pattern-3"></div>
+    </div>
+    <div class="container">
+        <%- include('shared-header', { title: 'Your Top Spotify Tracks', subtitle: 'Discover your most played songs' }) %>
+        
+        <!-- Time Range Selector -->
+        <div class="time-range-selector">
+            <label for="time-range-select" style="color: var(--white); margin-right: 10px; font-family: 'IBM Plex Mono', monospace;">Time Range:</label>
+            <select id="time-range-select" class="time-range-dropdown">
+                <option value="short_term" <%= typeof timeRange !== 'undefined' && timeRange === 'short_term' ? 'selected' : '' %>>Last 4 Weeks</option>
+                <option value="medium_term" <%= (typeof timeRange === 'undefined' || timeRange === 'medium_term') ? 'selected' : '' %>>Last 6 Months</option>
+                <option value="long_term" <%= typeof timeRange !== 'undefined' && timeRange === 'long_term' ? 'selected' : '' %>>All Time</option>
+            </select>
+        </div>
+
+        <% if (typeof tracks !== 'undefined' && Array.isArray(tracks) && tracks.length > 0) { %>
+            <% 
+                const validTracks = tracks.filter(t => t && t.id);
+                const uniqueArtists = new Set();
+                validTracks.forEach(t => {
+                    if (t.artists && Array.isArray(t.artists)) {
+                        t.artists.forEach(a => {
+                            if (a && a.id) uniqueArtists.add(a.id);
+                        });
+                    }
+                });
+                const avgPopularity = validTracks.length > 0 
+                    ? Math.round(validTracks.reduce((sum, t) => sum + (t.popularity || 0), 0) / validTracks.length)
+                    : 0;
+                const totalDuration = validTracks.reduce((sum, t) => sum + (t.duration_ms || 0), 0);
+            %>
+            
+            <!-- Stats Summary -->
+            <div class="stats-summary">
+                <div class="stat">
+                    <div class="stat-label">TOTAL TRACKS</div>
+                    <div class="stat-value"><%= validTracks.length %></div>
+                </div>
+                <div class="stat">
+                    <div class="stat-label">UNIQUE ARTISTS</div>
+                    <div class="stat-value"><%= uniqueArtists.size %></div>
+                </div>
+                <div class="stat">
+                    <div class="stat-label">AVG POPULARITY</div>
+                    <div class="stat-value"><%= avgPopularity %>%</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-label">TOTAL DURATION</div>
+                    <div class="stat-value"><%= Math.round(totalDuration / 60000) %> min</div>
+                </div>
+            </div>
+
+            <!-- Tracks List -->
+            <ul>
+                <% validTracks.forEach((track, index) => { %>
+                    <li class="track-item">
+                        <div class="track-number"><%= index + 1 %></div>
+                        
+                        <% if (track.album && track.album.images && Array.isArray(track.album.images) && track.album.images.length > 0 && track.album.images[0].url) { %>
+                            <img src="<%= track.album.images[0].url %>" 
+                                 alt="<%= track.album.name || 'Album cover' %>" 
+                                 width="84" 
+                                 height="84"
+                                 class="track-image">
+                        <% } else { %>
+                            <div style="width: 84px; height: 84px; background-color: #333; border-radius: 8px; margin-right: 15px;"></div>
+                        <% } %>
+                        
+                        <div class="track-info">
+                            <div class="track-name-row">
+                                <div class="track-name">
+                                    <%= track.name || 'Unknown Track' %>
+                                </div>
+                                <div class="track-artist-inline">
+                                    by <%= track.artists && Array.isArray(track.artists) 
+                                        ? track.artists.map(artist => artist && artist.name ? artist.name : 'Unknown').join(', ')
+                                        : 'Unknown Artist' %>
+                                </div>
+                            </div>
+                        </div>
+
+                        <% if (typeof track.popularity === 'number') { %>
+                            <div class="track-popularity" title="Popularity: <%= track.popularity %>%">
+                                <span style="color: #b3b3b3; font-size: 0.8925em;"><%= track.popularity %>%</span>
+                            </div>
+                        <% } %>
+
+                        <% if (track.external_urls && track.external_urls.spotify) { %>
+                            <a href="<%= track.external_urls.spotify %>" 
+                               target="_blank" 
+                               rel="noopener noreferrer"
+                               class="spotify-link"
+                               title="Open in Spotify">
+                                Play
+                            </a>
+                        <% } %>
+
+                        <% if (track.duration_ms) { %>
+                            <div class="track-duration">
+                                <%= Math.floor(track.duration_ms / 60000) %>:<%= String(Math.floor((track.duration_ms % 60000) / 1000)).padStart(2, '0') %>
+                            </div>
+                        <% } %>
+                    </li>
+                <% }) %>
+            </ul>
+        <% } else { %>
+            <div class="no-tracks">
+                <h2>No tracks found</h2>
+                <p>Start listening to music on Spotify to see your top tracks here!</p>
+            </div>
+        <% } %>
+    </div>
+
+    <script>
+        document.getElementById('time-range-select').addEventListener('change', function() {
+            const timeRange = this.value;
+            window.location.href = `/get-top-tracks?time_range=${timeRange}`;
+        });
+    </script>
+</body>
+</html>
