@@ -154,6 +154,64 @@
             border: 1px solid rgba(203, 152, 79, 0.2);
         }
 
+        .top-track-loading {
+            color: #888;
+            font-style: italic;
+        }
+
+        .top-track-error {
+            color: #ff6b6b;
+            font-size: 0.9em;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 0.6; }
+            50% { opacity: 1; }
+        }
+
+        .top-track-loading {
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+
+        .loading-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(42, 31, 28, 0.95);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+        }
+
+        .loading-overlay.active {
+            display: flex;
+        }
+
+        .spinner {
+            border: 4px solid var(--light-bg);
+            border-top: 4px solid var(--indian-yellow);
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin-bottom: 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .loading-text {
+            color: var(--indian-yellow);
+            font-size: 1.2em;
+            font-family: 'IBM Plex Mono', monospace;
+        }
+
         .stats-summary {
             background: linear-gradient(135deg, var(--bronze-dark) 0%, var(--old-burgundy) 100%);
             padding: 25px;
@@ -343,17 +401,12 @@
                                 <% } %>
                             </div>
 
-                            <% if (artist.mostListenedTrack && artist.mostListenedTrack.name) { %>
-                                <div class="top-track">
-                                    <div class="top-track-label">Most Popular Track</div>
-                                    <div class="top-track-name"><%= artist.mostListenedTrack.name %></div>
-                                    <% if (artist.mostListenedTrack.album && artist.mostListenedTrack.album.name) { %>
-                                        <div class="top-track-album">
-                                            Album: <%= artist.mostListenedTrack.album.name %>
-                                        </div>
-                                    <% } %>
-                                </div>
-                            <% } %>
+                            <!-- Top track container (lazy loaded) -->
+                            <div class="top-track" id="top-track-<%= artist.id %>" data-artist-id="<%= artist.id %>" data-loaded="false">
+                                <div class="top-track-label">Most Popular Track</div>
+                                <div class="top-track-name top-track-loading">Loading...</div>
+                                <div class="top-track-album"></div>
+                            </div>
                         </div>
                     </li>
                 <% }) %>
@@ -366,11 +419,83 @@
         <% } %>
     </div>
 
+    <div id="loading-overlay" class="loading-overlay">
+        <div class="spinner"></div>
+        <div class="loading-text">Loading artists...</div>
+    </div>
+
     <script>
+        const loadingOverlay = document.getElementById('loading-overlay');
+
         document.getElementById('time-range-select').addEventListener('change', function() {
+            loadingOverlay.classList.add('active');
             const timeRange = this.value;
             window.location.href = `/get-top-artists?time_range=${timeRange}`;
         });
+
+        // Show loading when clicking back button
+        document.querySelector('.back-button')?.addEventListener('click', () => {
+            loadingOverlay.classList.add('active');
+        });
+
+        // Lazy load top tracks using Intersection Observer
+        const topTrackContainers = document.querySelectorAll('.top-track[data-artist-id]');
+        
+        async function loadTopTrack(container) {
+            const artistId = container.dataset.artistId;
+            const isLoaded = container.dataset.loaded === 'true';
+            
+            if (isLoaded) return;
+            
+            container.dataset.loaded = 'true';
+            
+            try {
+                const response = await fetch(`/api/artist/${artistId}/top-track`);
+                const data = await response.json();
+                
+                const nameEl = container.querySelector('.top-track-name');
+                const albumEl = container.querySelector('.top-track-album');
+                
+                if (data.success && data.track) {
+                    nameEl.textContent = data.track.name;
+                    nameEl.classList.remove('top-track-loading');
+                    if (data.track.album) {
+                        albumEl.textContent = `Album: ${data.track.album}`;
+                    }
+                } else {
+                    nameEl.textContent = 'No track available';
+                    nameEl.classList.remove('top-track-loading');
+                    nameEl.classList.add('top-track-error');
+                }
+            } catch (error) {
+                const nameEl = container.querySelector('.top-track-name');
+                nameEl.textContent = 'Failed to load';
+                nameEl.classList.remove('top-track-loading');
+                nameEl.classList.add('top-track-error');
+            }
+        }
+
+        // Use Intersection Observer for lazy loading
+        if ('IntersectionObserver' in window) {
+            const observer = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        loadTopTrack(entry.target);
+                        observer.unobserve(entry.target);
+                    }
+                });
+            }, {
+                rootMargin: '100px', // Start loading 100px before visible
+                threshold: 0.1
+            });
+
+            topTrackContainers.forEach(container => {
+                observer.observe(container);
+            });
+        } else {
+            // Fallback for older browsers: load all
+            topTrackContainers.forEach(loadTopTrack);
+        }
     </script>
 </body>
 </html>

@@ -292,6 +292,9 @@
             border: 1px solid rgba(203, 152, 79, 0.2);
             box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
             position: relative;
+            max-width: 1200px;
+            margin-left: auto;
+            margin-right: auto;
         }
 
         .section-title {
@@ -306,7 +309,7 @@
 
         .playlist-cards-container {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            grid-template-columns: repeat(3, 1fr);
             gap: 30px;
             margin-top: 30px;
         }
@@ -318,6 +321,8 @@
             box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
             transition: transform 0.2s, box-shadow 0.2s;
             border: 1px solid rgba(203, 152, 79, 0.2);
+            display: flex;
+            flex-direction: column;
         }
 
         .playlist-card:hover {
@@ -341,12 +346,14 @@
             margin-bottom: 25px;
             line-height: 1.6;
             font-weight: 300;
+            flex-grow: 1;
         }
 
         .playlist-form-single {
             display: flex;
             flex-direction: column;
             gap: 15px;
+            margin-top: auto;
         }
 
         .playlist-input-group {
@@ -427,6 +434,12 @@
             color: #ff4b4b;
         }
 
+        @media (max-width: 1100px) {
+            .playlist-cards-container {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
         @media (max-width: 768px) {
             .brand-logo {
                 font-size: 6em;
@@ -439,6 +452,10 @@
 
             .playlist-cards-container {
                 grid-template-columns: 1fr;
+            }
+
+            .playlist-section {
+                padding: 30px 20px;
             }
         }
     </style>
@@ -578,13 +595,63 @@
             chill: 'Chill'
         };
 
+        // Poll for job status until complete
+        async function pollJobStatus(jobId, onProgress, onComplete, onError) {
+            const maxAttempts = 120; // 2 minutes max (1 second intervals)
+            let attempts = 0;
+
+            const poll = async () => {
+                try {
+                    const response = await fetch(`/api/job/${jobId}`);
+                    const data = await response.json();
+
+                    if (!data.success) {
+                        onError('Job not found');
+                        return;
+                    }
+
+                    const job = data.job;
+                    onProgress(job.progress, job.message);
+
+                    if (job.status === 'completed') {
+                        onComplete(job.result);
+                        return;
+                    }
+
+                    if (job.status === 'failed') {
+                        onError(job.error || job.message);
+                        return;
+                    }
+
+                    // Keep polling if still processing
+                    attempts++;
+                    if (attempts < maxAttempts) {
+                        setTimeout(poll, 1000);
+                    } else {
+                        onError('Operation timed out. Please try again.');
+                    }
+                } catch (error) {
+                    onError(error.message);
+                }
+            };
+
+            poll();
+        }
+
         function setupPlaylistForm(formId, category) {
             const form = document.getElementById(formId);
             const resultDiv = document.getElementById(`${category}-result`);
             const submitButton = form.querySelector('.playlist-submit-button');
 
-        form.addEventListener('submit', async (e) => {
-            e.preventDefault();
+            form.addEventListener('submit', async (e) => {
+                e.preventDefault();
+
+                // TEMPORARY: Feature under maintenance
+                resultDiv.className = 'playlist-result-message error';
+                resultDiv.style.display = 'block';
+                resultDiv.innerHTML = `<strong>Sorry, this feature is under maintenance.</strong><br>Please try again later.`;
+                return;
+                // END TEMPORARY
 
                 const formData = new FormData(form);
                 const playlistName = formData.get('name') || `${categoryNames[category]} Vibes`;
@@ -592,43 +659,65 @@
                 submitButton.disabled = true;
                 submitButton.textContent = 'Creating...';
                 resultDiv.style.display = 'none';
-            loadingOverlay.classList.add('active');
+                loadingOverlay.classList.add('active');
                 loadingText.textContent = `Creating ${categoryNames[category]} playlist...`;
-                loadingSubtext.textContent = 'This may take a minute for large libraries';
+                loadingSubtext.textContent = 'Starting...';
 
                 try {
+                    // Start the background job
                     const response = await fetch(endpoints[category], {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/x-www-form-urlencoded',
-                    },
-                    body: new URLSearchParams(formData)
-                });
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                        },
+                        body: new URLSearchParams(formData)
+                    });
 
-                const data = await response.json();
-                loadingOverlay.classList.remove('active');
+                    const data = await response.json();
 
-                if (data.success) {
-                        resultDiv.className = 'playlist-result-message success';
-                        resultDiv.style.display = 'block';
-                        resultDiv.innerHTML = `
-                            <strong>${data.message}</strong><br>
-                            <small>Total songs analyzed: ${data.details.totalSongs} | 
-                            Tracks in playlist: ${data.details.trackCount}</small><br>
-                            <small>Check your Spotify app to see your new playlist!</small>
-                        `;
-                        form.reset();
-                    } else {
-                        throw new Error(data.message || 'Unknown error occurred');
+                    if (!data.success || !data.jobId) {
+                        throw new Error(data.message || 'Failed to start playlist creation');
                     }
+
+                    // Poll for job status
+                    pollJobStatus(
+                        data.jobId,
+                        // On progress update
+                        (progress, message) => {
+                            loadingSubtext.textContent = message || `Progress: ${progress}%`;
+                        },
+                        // On complete
+                        (result) => {
+                            loadingOverlay.classList.remove('active');
+                            resultDiv.className = 'playlist-result-message success';
+                            resultDiv.style.display = 'block';
+                            resultDiv.innerHTML = `
+                                <strong>Playlist created successfully!</strong><br>
+                                <small>Total songs analyzed: ${result.totalSongs} | 
+                                Tracks in playlist: ${result.trackCount}</small><br>
+                                <small>Check your Spotify app to see your new playlist!</small>
+                            `;
+                            form.reset();
+                            submitButton.disabled = false;
+                            submitButton.textContent = 'Create Playlist';
+                        },
+                        // On error
+                        (errorMsg) => {
+                            loadingOverlay.classList.remove('active');
+                            resultDiv.className = 'playlist-result-message error';
+                            resultDiv.style.display = 'block';
+                            resultDiv.innerHTML = `<strong>Error:</strong> ${errorMsg}`;
+                            submitButton.disabled = false;
+                            submitButton.textContent = 'Create Playlist';
+                        }
+                    );
                 } catch (error) {
                     loadingOverlay.classList.remove('active');
                     resultDiv.className = 'playlist-result-message error';
                     resultDiv.style.display = 'block';
                     resultDiv.innerHTML = `<strong>Error:</strong> ${error.message}`;
-                } finally {
                     submitButton.disabled = false;
-                    submitButton.textContent = `Create ${categoryNames[category]} Playlist`;
+                    submitButton.textContent = 'Create Playlist';
                 }
             });
         }
@@ -665,6 +754,13 @@
         }
 
         const featureCards = document.querySelectorAll('.feature-card');
+        const featureNames = {
+            '/dashboard': 'Loading Insights...',
+            '/get-top-tracks': 'Loading Top Tracks...',
+            '/get-top-artists': 'Loading Top Artists...',
+            '/get-artist-dive': 'Loading Artist Deep Dive...'
+        };
+
         featureCards.forEach(card => {
             card.addEventListener('mouseenter', () => {
                 clearTimeout(precacheTimeout);
@@ -678,6 +774,14 @@
 
             card.addEventListener('mouseleave', () => {
                 clearTimeout(precacheTimeout);
+            });
+
+            // Show loading overlay when clicking feature cards
+            card.addEventListener('click', (e) => {
+                const url = card.getAttribute('href');
+                loadingOverlay.classList.add('active');
+                loadingText.textContent = featureNames[url] || 'Loading...';
+                loadingSubtext.textContent = 'Fetching your Spotify data';
             });
         });
 

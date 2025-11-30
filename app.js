@@ -15,6 +15,78 @@ const session = require('express-session');
 const passport = require('passport');
 const SpotifyStrategy = require('passport-spotify').Strategy;
 const axios = require('axios');
+const NodeCache = require('node-cache');
+
+// API Response Cache - TTL in seconds
+const apiCache = new NodeCache({ 
+  stdTTL: 300, // 5 minutes default TTL
+  checkperiod: 60, // Check for expired entries every 60 seconds
+  useClones: false // Better performance, don't clone objects
+});
+
+// Background Job System for long-running operations
+const jobStore = new Map();
+
+/**
+ * Creates a background job and returns its ID
+ * @param {string} type - Job type (e.g., 'playlist')
+ * @param {Object} data - Job data
+ * @returns {string} Job ID
+ */
+function createJob(type, data) {
+  const jobId = `${type}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  jobStore.set(jobId, {
+    id: jobId,
+    type,
+    status: 'pending',
+    progress: 0,
+    message: 'Starting...',
+    data,
+    result: null,
+    error: null,
+    createdAt: Date.now()
+  });
+  return jobId;
+}
+
+/**
+ * Updates a job's status
+ * @param {string} jobId - Job ID
+ * @param {Object} updates - Fields to update
+ */
+function updateJob(jobId, updates) {
+  const job = jobStore.get(jobId);
+  if (job) {
+    Object.assign(job, updates);
+    jobStore.set(jobId, job);
+  }
+}
+
+/**
+ * Gets a job's current status
+ * @param {string} jobId - Job ID
+ * @returns {Object|null} Job object or null if not found
+ */
+function getJob(jobId) {
+  return jobStore.get(jobId) || null;
+}
+
+/**
+ * Cleans up old completed/failed jobs (older than 1 hour)
+ */
+function cleanupOldJobs() {
+  const oneHourAgo = Date.now() - (60 * 60 * 1000);
+  for (const [jobId, job] of jobStore.entries()) {
+    if (job.createdAt < oneHourAgo && (job.status === 'completed' || job.status === 'failed')) {
+      jobStore.delete(jobId);
+    }
+  }
+}
+
+// Clean up old jobs every 30 minutes (skip interval in tests)
+if (process.env.NODE_ENV !== 'test') {
+  setInterval(cleanupOldJobs, 30 * 60 * 1000);
+}
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -44,6 +116,7 @@ const RETRY_DELAY_BASE = 1000; // 1 second
 const REQUEST_DELAY = 100; // Delay between batch requests (ms)
 const MAX_CONCURRENT_REQUESTS = 5; // Max concurrent API requests
 const MAX_SONGS_LIMIT = 2000; // Limit for very large libraries
+const IS_ARTIST_DIVE_DISABLED = process.env.ARTIST_DIVE_DISABLED !== 'false';
 
 // Environment variable validation
 const requiredEnvVars = ['SPOTIFY_CLIENT_ID', 'SPOTIFY_CLIENT_SECRET', 'SESSION_SECRET'];
@@ -53,6 +126,13 @@ if (missingVars.length > 0) {
   console.error('Please set these in your .env file');
   process.exit(1);
 }
+
+// Debug: Log OAuth configuration on startup
+console.log('=== Spotify OAuth Configuration ===');
+console.log('Client ID:', process.env.SPOTIFY_CLIENT_ID);
+console.log('Client ID length:', process.env.SPOTIFY_CLIENT_ID?.length);
+console.log('Callback URL:', process.env.CALLBACK_URL || 'http://localhost:3000/callback');
+console.log('===================================');
 
 // Express configuration
 app.set('view engine', 'ejs');
@@ -90,7 +170,7 @@ passport.use(new SpotifyStrategy(
   {
     clientID: process.env.SPOTIFY_CLIENT_ID,
     clientSecret: process.env.SPOTIFY_CLIENT_SECRET,
-    callbackURL: process.env.CALLBACK_URL || 'http://localhost:3000/callback'
+    callbackURL: process.env.CALLBACK_URL || 'http://127.0.0.1:3000/callback'
   },
   (accessToken, refreshToken, expires_in, profile, done) => {
     console.log('User authenticated:', profile.id);
@@ -112,10 +192,13 @@ app.use(express.static('public'));
  */
 
 /**
- * Root route - renders main menu (login page if not authenticated)
+ * Root route - shows login page if not authenticated, redirects to menu if authenticated
  */
 app.get('/', (req, res) => {
-  res.render('main-menu');
+  if (req.isAuthenticated()) {
+    return res.redirect('/menu');
+  }
+  res.render('login');
 });
 
 /**
@@ -138,8 +221,12 @@ app.get('/auth/spotify', passport.authenticate('spotify', {
  * OAuth callback route - handles Spotify authentication response
  * Redirects to main menu on success, root on failure
  */
-app.get('/callback', passport.authenticate('spotify', { failureRedirect: '/' }), (req, res) => {
+app.get('/callback', passport.authenticate('spotify', { failureRedirect: '/' }), async (req, res) => {
   console.log('User authenticated:', req.user.profile.id);
+  
+  // Prefetch user data in background (don't wait)
+  prefetchUserData(req).catch(err => console.error('Prefetch error:', err.message));
+  
   res.redirect('/menu');
 });
 
@@ -349,6 +436,126 @@ async function makeSpotifyRequest(requestFn, retries = MAX_RETRIES, accessToken 
  */
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Makes a cached Spotify API request
+ * Returns cached data if available and not expired, otherwise fetches fresh data
+ * 
+ * @param {string} cacheKey - Unique key for caching this request
+ * @param {Function} requestFn - Async function that makes the API request
+ * @param {number} ttl - Optional TTL in seconds (default: 300 = 5 minutes)
+ * @returns {Promise} Promise that resolves with the API response data
+ */
+async function makeCachedSpotifyRequest(cacheKey, requestFn, ttl = 300) {
+  // Check cache first
+  const cached = apiCache.get(cacheKey);
+  if (cached) {
+    console.log(`Cache hit: ${cacheKey}`);
+    return cached;
+  }
+
+  // Make request and cache result
+  console.log(`Cache miss: ${cacheKey}`);
+  const response = await makeSpotifyRequest(requestFn);
+  apiCache.set(cacheKey, response, ttl);
+  return response;
+}
+
+/**
+ * Generates a cache key for user-specific API requests
+ * 
+ * @param {string} userId - Spotify user ID
+ * @param {string} endpoint - API endpoint name
+ * @param {Object} params - Optional parameters to include in key
+ * @returns {string} Cache key
+ */
+function getUserCacheKey(userId, endpoint, params = {}) {
+  const paramStr = Object.entries(params)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([k, v]) => `${k}=${v}`)
+    .join('&');
+  return `user:${userId}:${endpoint}${paramStr ? ':' + paramStr : ''}`;
+}
+
+/**
+ * Clears all cached data for a specific user
+ * Call this on logout to prevent stale data
+ * 
+ * @param {string} userId - Spotify user ID
+ */
+function clearUserCache(userId) {
+  const keys = apiCache.keys();
+  const userKeys = keys.filter(k => k.startsWith(`user:${userId}:`));
+  userKeys.forEach(k => apiCache.del(k));
+  console.log(`Cleared ${userKeys.length} cached entries for user ${userId}`);
+}
+
+/**
+ * Session-level cache helper for user data
+ * Stores frequently accessed data in user session to avoid redundant API calls
+ * 
+ * @param {Object} req - Express request object
+ * @param {string} key - Cache key within session
+ * @param {Function} fetchFn - Async function to fetch data if not cached
+ * @param {number} maxAge - Maximum age in ms before refresh (default: 5 minutes)
+ * @returns {Promise} Cached or freshly fetched data
+ */
+async function getSessionCachedData(req, key, fetchFn, maxAge = 5 * 60 * 1000) {
+  // Initialize session cache if not exists
+  if (!req.user.sessionCache) {
+    req.user.sessionCache = {};
+  }
+
+  const cached = req.user.sessionCache[key];
+  const now = Date.now();
+
+  // Return cached data if valid
+  if (cached && cached.timestamp && (now - cached.timestamp) < maxAge) {
+    console.log(`Session cache hit: ${key}`);
+    return cached.data;
+  }
+
+  // Fetch fresh data
+  console.log(`Session cache miss: ${key}`);
+  const data = await fetchFn();
+  
+  // Store in session
+  req.user.sessionCache[key] = {
+    data,
+    timestamp: now
+  };
+
+  return data;
+}
+
+/**
+ * Prefetch common user data and store in session
+ * Call after successful authentication to warm up cache
+ * 
+ * @param {Object} req - Express request object
+ */
+async function prefetchUserData(req) {
+  const accessToken = req.user.accessToken;
+  const userId = req.user.profile?.id || 'unknown';
+
+  try {
+    // Prefetch user profile for market info
+    if (!req.user.market) {
+      const userProfile = await makeCachedSpotifyRequest(
+        getUserCacheKey(userId, 'profile'),
+        () => axios.get('https://api.spotify.com/v1/me', {
+          headers: { Authorization: `Bearer ${accessToken}` }
+        }),
+        600 // 10 minute cache
+      );
+      req.user.market = userProfile.data.country || 'US';
+    }
+
+    console.log(`Prefetched data for user ${userId}`);
+  } catch (error) {
+    console.error('Error prefetching user data:', error.message);
+  }
 }
 
 /**
@@ -656,9 +863,9 @@ async function calculateDiscoveryRatio(accessToken, user, recentTracks = null) {
       recentTracksData = recentTracksResponse.data.items || [];
     }
 
-    const recentTracks = recentTracksData;
+    const recentTracksForRatio = recentTracksData;
 
-    if (recentTracks.length === 0) {
+    if (recentTracksForRatio.length === 0) {
       return {
         comfortPercent: 0,
         discoveryPercent: 0,
@@ -668,18 +875,38 @@ async function calculateDiscoveryRatio(accessToken, user, recentTracks = null) {
       };
     }
 
-    // Fetch top tracks to build comfort set
-    const topTracksResponse = await makeSpotifyRequest(() =>
-      axios.get('https://api.spotify.com/v1/me/top/tracks', {
-        headers: {
-          Authorization: `Bearer ${accessToken}`
-        },
-        params: {
-          limit: 50,
-          time_range: 'medium_term'
-        }
-      })
-    );
+    // Fetch top tracks and top artists IN PARALLEL with caching for better performance
+    // Note: user object may have profile.id for cache key
+    const userId = user.profile?.id || 'unknown';
+    
+    const [topTracksResponse, topArtistsResponse] = await Promise.all([
+      makeCachedSpotifyRequest(
+        getUserCacheKey(userId, 'top-tracks', { time_range: 'medium_term', limit: 50 }),
+        () => axios.get('https://api.spotify.com/v1/me/top/tracks', {
+          headers: {
+            Authorization: `Bearer ${accessToken}`
+          },
+          params: {
+            limit: 50,
+            time_range: 'medium_term'
+          }
+        }),
+        300 // 5 minute cache
+      ),
+      makeCachedSpotifyRequest(
+        getUserCacheKey(userId, 'top-artists', { time_range: 'medium_term', limit: 50 }),
+        () => axios.get('https://api.spotify.com/v1/me/top/artists', {
+          headers: {
+            Authorization: `Bearer ${accessToken}`
+          },
+          params: {
+            limit: 50,
+            time_range: 'medium_term'
+          }
+        }),
+        300 // 5 minute cache
+      )
+    ]);
 
     const topTracks = topTracksResponse.data.items || [];
     const topTrackIds = new Set();
@@ -688,19 +915,6 @@ async function calculateDiscoveryRatio(accessToken, user, recentTracks = null) {
         topTrackIds.add(track.id);
       }
     });
-
-    // Fetch top artists to build comfort set
-    const topArtistsResponse = await makeSpotifyRequest(() =>
-      axios.get('https://api.spotify.com/v1/me/top/artists', {
-        headers: {
-          Authorization: `Bearer ${accessToken}`
-        },
-        params: {
-          limit: 50,
-          time_range: 'medium_term'
-        }
-      })
-    );
 
     const topArtists = topArtistsResponse.data.items || [];
     const topArtistIds = new Set();
@@ -714,7 +928,7 @@ async function calculateDiscoveryRatio(accessToken, user, recentTracks = null) {
     let comfortCount = 0;
     let discoveryCount = 0;
 
-    recentTracks.forEach(trackItem => {
+    recentTracksForRatio.forEach(trackItem => {
       if (!trackItem || !trackItem.track) return;
 
       const track = trackItem.track;
@@ -734,7 +948,7 @@ async function calculateDiscoveryRatio(accessToken, user, recentTracks = null) {
       }
     });
 
-    const totalTracks = recentTracks.length;
+    const totalTracks = recentTracksForRatio.length;
     const comfortPercent = totalTracks > 0 ? Math.round((comfortCount / totalTracks) * 100) : 0;
     const discoveryPercent = totalTracks > 0 ? Math.round((discoveryCount / totalTracks) * 100) : 0;
 
@@ -948,10 +1162,11 @@ app.get('/dashboard', ensureAuthenticated, refreshTokenIfNeeded, async (req, res
       });
     }
 
-    const artistBatches = [];
+    // Build artist batch requests for genre data
+    const artistBatchPromises = [];
     for (let i = 0; i < uniqueArtistIds.length; i += API_BATCH_SIZES.ARTISTS) {
       const batch = uniqueArtistIds.slice(i, i + API_BATCH_SIZES.ARTISTS);
-      artistBatches.push(
+      artistBatchPromises.push(
         makeSpotifyRequest(() =>
         axios.get('https://api.spotify.com/v1/artists', {
           headers: {
@@ -965,8 +1180,16 @@ app.get('/dashboard', ensureAuthenticated, refreshTokenIfNeeded, async (req, res
       );
     }
 
-    const artistResponses = await Promise.all(artistBatches);
+    // Run artist fetching, discovery ratio, and heatmap generation IN PARALLEL
+    const [artistResponses, discoveryData] = await Promise.all([
+      Promise.all(artistBatchPromises),
+      calculateDiscoveryRatio(accessToken, req.user, recentTracks)
+    ]);
 
+    // Generate heatmap data (sync operation, no API calls)
+    const heatmapData = generateHeatmapData(recentTracks);
+
+    // Process genre data from artist responses
     const genreCount = {};
     artistResponses.forEach(response => {
       if (response.data && response.data.artists) {
@@ -986,12 +1209,6 @@ app.get('/dashboard', ensureAuthenticated, refreshTokenIfNeeded, async (req, res
 
     const topGenres = sortedGenres.map(entry => entry[0]);
     const genreData = sortedGenres.map(entry => entry[1]);
-
-    // Calculate Discovery vs Comfort ratio (pass recentTracks to avoid redundant API call)
-    const discoveryData = await calculateDiscoveryRatio(accessToken, req.user, recentTracks);
-
-    // Generate heatmap data
-    const heatmapData = generateHeatmapData(recentTracks);
 
     res.render('dashboard', {
       listeningTimeData: listeningTimeByHour,
@@ -1014,6 +1231,12 @@ app.get('/dashboard', ensureAuthenticated, refreshTokenIfNeeded, async (req, res
  * Logout route - destroys user session and redirects to login
  */
 app.get('/logout', (req, res, next) => {
+  // Clear user's API cache before logout
+  const userId = req.user?.profile?.id;
+  if (userId) {
+    clearUserCache(userId);
+  }
+  
   req.logout((err) => {
     if (err) {
       return next(err);
@@ -1038,16 +1261,21 @@ app.get('/get-top-tracks', ensureAuthenticated, refreshTokenIfNeeded, async (req
   const timeRange = req.query.time_range || 'medium_term'; // Default to 6 months
 
   try {
-    const response = await makeSpotifyRequest(() =>
-      axios.get('https://api.spotify.com/v1/me/top/tracks', {
-      headers: {
-        Authorization: `Bearer ${accessToken}`
-      },
-      params: {
-        limit: 50,
-        time_range: timeRange
-      }
-      })
+    const userId = req.user.profile?.id || 'unknown';
+    const cacheKey = getUserCacheKey(userId, 'top-tracks', { time_range: timeRange, limit: 50 });
+    
+    const response = await makeCachedSpotifyRequest(
+      cacheKey,
+      () => axios.get('https://api.spotify.com/v1/me/top/tracks', {
+        headers: {
+          Authorization: `Bearer ${accessToken}`
+        },
+        params: {
+          limit: 50,
+          time_range: timeRange
+        }
+      }),
+      300 // 5 minute cache
     );
     
     res.render('top-tracks', { tracks: response.data.items || [], timeRange });
@@ -1061,12 +1289,14 @@ app.get('/get-top-tracks', ensureAuthenticated, refreshTokenIfNeeded, async (req
 });
 
 /**
- * Top artists route - displays user's most played artists with their top tracks
+ * Top artists route - displays user's most played artists
+ * Top tracks are loaded lazily via /api/artist/:id/top-track for better performance
  * Query params: time_range ('short_term', 'medium_term', or 'long_term', default: 'medium_term')
  */
 app.get('/get-top-artists', ensureAuthenticated, refreshTokenIfNeeded, async (req, res) => {
   const accessToken = req.user.accessToken;
   const timeRange = req.query.time_range || 'medium_term'; // Default to 6 months
+  const userId = req.user.profile?.id || 'unknown';
 
   try {
     // Get user's market/country from profile (cache it if not already cached)
@@ -1087,44 +1317,25 @@ app.get('/get-top-artists', ensureAuthenticated, refreshTokenIfNeeded, async (re
       }
     }
 
-    const response = await makeSpotifyRequest(() =>
-      axios.get('https://api.spotify.com/v1/me/top/artists', {
-      headers: {
-        Authorization: `Bearer ${accessToken}`
-      },
-      params: {
-        limit: 50,
-        time_range: timeRange
-      }
-      })
+    const cacheKey = getUserCacheKey(userId, 'top-artists-list', { time_range: timeRange, limit: 50 });
+    const response = await makeCachedSpotifyRequest(
+      cacheKey,
+      () => axios.get('https://api.spotify.com/v1/me/top/artists', {
+        headers: {
+          Authorization: `Bearer ${accessToken}`
+        },
+        params: {
+          limit: 50,
+          time_range: timeRange
+        }
+      }),
+      300 // 5 minute cache
     );
 
     const artists = response.data.items || [];
 
-    const artistWithTracksPromises = artists.map(async artist => {
-      try {
-        const topTracks = await makeSpotifyRequest(() =>
-          axios.get(`https://api.spotify.com/v1/artists/${artist.id}/top-tracks`, {
-          headers: {
-            Authorization: `Bearer ${accessToken}`
-          },
-          params: {
-            market: userMarket
-          }
-          })
-        );
-
-        const mostListenedTrack = topTracks.data.tracks && topTracks.data.tracks[0] ? topTracks.data.tracks[0] : null;
-        return { ...artist, mostListenedTrack };
-      } catch (error) {
-        console.error(`Error fetching top tracks for artist ${artist.id}:`, error.message);
-        return { ...artist, mostListenedTrack: null };
-      }
-    });
-
-    const artistsWithTracks = await Promise.all(artistWithTracksPromises);
-
-    res.render('top-artists', { artists: artistsWithTracks, timeRange });
+    // Return artists immediately without top tracks (lazy loaded via API)
+    res.render('top-artists', { artists, timeRange, userMarket });
   } catch (error) {
     console.error('Error fetching top artists:', error.response ? error.response.data : error.message);
     res.status(500).render('error', { 
@@ -1135,29 +1346,84 @@ app.get('/get-top-artists', ensureAuthenticated, refreshTokenIfNeeded, async (re
 });
 
 /**
+ * API endpoint to fetch an artist's top track (for lazy loading)
+ * Returns JSON with the artist's most popular track
+ */
+app.get('/api/artist/:artistId/top-track', ensureAuthenticated, refreshTokenIfNeeded, async (req, res) => {
+  const accessToken = req.user.accessToken;
+  const artistId = req.params.artistId;
+  const userMarket = req.user.market || 'US';
+
+  try {
+    // Cache artist top tracks for 10 minutes (artist data changes less frequently)
+    const cacheKey = `artist:${artistId}:top-tracks:${userMarket}`;
+    const topTracks = await makeCachedSpotifyRequest(
+      cacheKey,
+      () => axios.get(`https://api.spotify.com/v1/artists/${artistId}/top-tracks`, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`
+        },
+        params: {
+          market: userMarket
+        }
+      }),
+      600 // 10 minute cache for artist data
+    );
+
+    const mostListenedTrack = topTracks.data.tracks && topTracks.data.tracks[0] ? topTracks.data.tracks[0] : null;
+    
+    res.json({
+      success: true,
+      track: mostListenedTrack ? {
+        name: mostListenedTrack.name,
+        album: mostListenedTrack.album ? mostListenedTrack.album.name : null
+      } : null
+    });
+  } catch (error) {
+    console.error(`Error fetching top track for artist ${artistId}:`, error.message);
+    res.json({ success: false, track: null });
+  }
+});
+
+/**
  * Artist Deep Dive route - analyzes how much of favorite artists' discographies user has explored
  * Shows coverage percentage and missing tracks for discovery
  * Query params: time_range ('short_term', 'medium_term', or 'long_term', default: 'medium_term')
  * Note: This feature is currently a work in progress
  */
 app.get('/get-artist-dive', ensureAuthenticated, refreshTokenIfNeeded, async (req, res) => {
+  if (IS_ARTIST_DIVE_DISABLED) {
+    return res.status(503).render('error', {
+      message: 'Artist Deep Dive is temporarily disabled while we refactor the background job pipeline.',
+      error: process.env.NODE_ENV === 'development' ? 'Feature temporarily disabled' : undefined
+    });
+  }
+
   const accessToken = req.user.accessToken;
   const timeRange = req.query.time_range || 'medium_term'; // Default to 6 months
+  const userId = req.user.profile?.id || 'unknown';
 
   try {
-    // Get user's market/country from profile
-    const userProfileResponse = await makeSpotifyRequest(() =>
-      axios.get('https://api.spotify.com/v1/me', {
-        headers: {
-          Authorization: `Bearer ${accessToken}`
-        }
-      })
-    );
-    const userMarket = userProfileResponse.data.country || 'US'; // Default to US if not available
+    // Get user's market/country from session cache or profile
+    let userMarket = req.user.market;
+    if (!userMarket) {
+      const userProfileResponse = await makeCachedSpotifyRequest(
+        getUserCacheKey(userId, 'profile'),
+        () => axios.get('https://api.spotify.com/v1/me', {
+          headers: {
+            Authorization: `Bearer ${accessToken}`
+          }
+        }),
+        600 // 10 minute cache
+      );
+      userMarket = userProfileResponse.data.country || 'US';
+      req.user.market = userMarket; // Cache in session
+    }
 
-    // Fetch user's top artists
-    const topArtistsResponse = await makeSpotifyRequest(() =>
-      axios.get('https://api.spotify.com/v1/me/top/artists', {
+    // Fetch user's top artists with caching
+    const topArtistsResponse = await makeCachedSpotifyRequest(
+      getUserCacheKey(userId, 'top-artists-dive', { time_range: timeRange, limit: 30 }),
+      () => axios.get('https://api.spotify.com/v1/me/top/artists', {
         headers: {
           Authorization: `Bearer ${accessToken}`
         },
@@ -1165,7 +1431,8 @@ app.get('/get-artist-dive', ensureAuthenticated, refreshTokenIfNeeded, async (re
           limit: 30,
           time_range: timeRange
         }
-      })
+      }),
+      300 // 5 minute cache
     );
 
     const topArtists = topArtistsResponse.data.items || [];
@@ -1432,10 +1699,82 @@ app.post('/create-artist-playlist/:artistId', ensureAuthenticated, refreshTokenI
 });
 
 /**
+ * Job Status Endpoint
+ * Returns the current status of a background job
+ */
+app.get('/api/job/:jobId', ensureAuthenticated, (req, res) => {
+  const job = getJob(req.params.jobId);
+  if (!job) {
+    return res.status(404).json({ success: false, error: 'Job not found' });
+  }
+  res.json({
+    success: true,
+    job: {
+      id: job.id,
+      status: job.status,
+      progress: job.progress,
+      message: job.message,
+      result: job.result,
+      error: job.error
+    }
+  });
+});
+
+/**
+ * Background playlist processor
+ * Processes playlist creation in the background and updates job status
+ */
+async function processPlaylistJob(jobId, user, category, playlistName, description) {
+  try {
+    updateJob(jobId, { status: 'processing', progress: 10, message: 'Fetching your liked songs...' });
+    
+    const { tracks, totalSongs, stats } = await fetchAndCategorizeTracks(user, category);
+    
+    updateJob(jobId, { progress: 50, message: `Found ${tracks.length} ${category} tracks...` });
+    
+    if (tracks.length === 0) {
+      updateJob(jobId, {
+        status: 'failed',
+        progress: 100,
+        message: `No ${category} tracks found in your liked songs.`,
+        error: 'No tracks available for this category'
+      });
+      return;
+    }
+
+    updateJob(jobId, { progress: 60, message: 'Creating playlist...' });
+    
+    const accessToken = await ensureValidToken(user);
+    const result = await createSinglePlaylist(accessToken, playlistName, description, tracks);
+
+    updateJob(jobId, {
+      status: 'completed',
+      progress: 100,
+      message: `Playlist "${playlistName}" created with ${tracks.length} tracks!`,
+      result: {
+        success: result.success,
+        playlistName,
+        trackCount: tracks.length,
+        totalSongs,
+        stats
+      }
+    });
+  } catch (error) {
+    console.error(`Error in playlist job ${jobId}:`, error.message);
+    updateJob(jobId, {
+      status: 'failed',
+      progress: 100,
+      message: error.message || 'Error creating playlist',
+      error: error.message
+    });
+  }
+}
+
+/**
  * Playlist Creation Routes
  * 
  * These routes create mood-based playlists from user's liked songs.
- * Each route processes tracks separately for better performance.
+ * Uses background jobs for better UX - returns immediately with job ID.
  * Body params: name (optional custom playlist name)
  */
 
@@ -1445,45 +1784,25 @@ app.post('/create-artist-playlist/:artistId', ensureAuthenticated, refreshTokenI
 app.post('/create-playlist/energetic', ensureAuthenticated, refreshTokenIfNeeded, async (req, res) => {
   const playlistName = sanitizePlaylistName(req.body.name, 'Energetic Vibes');
 
-  try {
-    const { tracks, totalSongs, stats } = await fetchAndCategorizeTracks(req.user, 'energetic');
-    const accessToken = await ensureValidToken(req.user);
-    
-    if (tracks.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'No energetic tracks found in your liked songs.',
-        error: 'No tracks available for this category'
-      });
-    }
+  // Create a background job
+  const jobId = createJob('playlist', { category: 'energetic', playlistName });
+  
+  // Start processing in background (don't await)
+  processPlaylistJob(
+    jobId, 
+    req.user, 
+    'energetic', 
+    playlistName, 
+    'Energetic playlist created from your liked songs'
+  ).catch(err => console.error('Job error:', err));
 
-    const result = await createSinglePlaylist(
-      accessToken,
-      playlistName,
-      'Energetic playlist created from your liked songs',
-      tracks
-    );
-
-    res.json({
-      success: result.success,
-      message: result.success 
-        ? `Energetic playlist "${playlistName}" created successfully with ${tracks.length} tracks!`
-        : 'Failed to create playlist',
-      details: {
-        playlistName,
-        trackCount: tracks.length,
-        totalSongs,
-        stats
-      }
-    });
-  } catch (error) {
-    console.error('Error creating energetic playlist:', error.message);
-    res.status(500).json({
-      success: false,
-      message: error.message || 'Error creating energetic playlist. Please try again.',
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
-    });
-  }
+  // Return job ID immediately
+  res.json({
+    success: true,
+    jobId,
+    message: 'Playlist creation started. Check progress with the job ID.',
+    checkUrl: `/api/job/${jobId}`
+  });
 });
 
 /**
@@ -1492,45 +1811,25 @@ app.post('/create-playlist/energetic', ensureAuthenticated, refreshTokenIfNeeded
 app.post('/create-playlist/mellow', ensureAuthenticated, refreshTokenIfNeeded, async (req, res) => {
   const playlistName = sanitizePlaylistName(req.body.name, 'Mellow Tunes');
 
-  try {
-    const { tracks, totalSongs, stats } = await fetchAndCategorizeTracks(req.user, 'mellow');
-    const accessToken = await ensureValidToken(req.user);
-    
-    if (tracks.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'No mellow tracks found in your liked songs.',
-        error: 'No tracks available for this category'
-      });
-    }
+  // Create a background job
+  const jobId = createJob('playlist', { category: 'mellow', playlistName });
+  
+  // Start processing in background
+  processPlaylistJob(
+    jobId, 
+    req.user, 
+    'mellow', 
+    playlistName, 
+    'Mellow playlist created from your liked songs'
+  ).catch(err => console.error('Job error:', err));
 
-    const result = await createSinglePlaylist(
-      accessToken,
-      playlistName,
-      'Mellow playlist created from your liked songs',
-      tracks
-    );
-
-    res.json({
-      success: result.success,
-      message: result.success 
-        ? `Mellow playlist "${playlistName}" created successfully with ${tracks.length} tracks!`
-        : 'Failed to create playlist',
-      details: {
-        playlistName,
-        trackCount: tracks.length,
-        totalSongs,
-        stats
-      }
-    });
-  } catch (error) {
-    console.error('Error creating mellow playlist:', error.message);
-    res.status(500).json({
-      success: false,
-      message: error.message || 'Error creating mellow playlist. Please try again.',
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
-    });
-  }
+  // Return job ID immediately
+  res.json({
+    success: true,
+    jobId,
+    message: 'Playlist creation started. Check progress with the job ID.',
+    checkUrl: `/api/job/${jobId}`
+  });
 });
 
 /**
@@ -1539,51 +1838,73 @@ app.post('/create-playlist/mellow', ensureAuthenticated, refreshTokenIfNeeded, a
 app.post('/create-playlist/chill', ensureAuthenticated, refreshTokenIfNeeded, async (req, res) => {
   const playlistName = sanitizePlaylistName(req.body.name, 'Chill Vibes');
 
-  try {
-    const { tracks, totalSongs, stats } = await fetchAndCategorizeTracks(req.user, 'lowEnergy');
-    const accessToken = await ensureValidToken(req.user);
-    
-    if (tracks.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'No chill tracks found in your liked songs.',
-        error: 'No tracks available for this category'
-      });
-    }
+  // Create a background job
+  const jobId = createJob('playlist', { category: 'chill', playlistName });
+  
+  // Start processing in background
+  processPlaylistJob(
+    jobId, 
+    req.user, 
+    'lowEnergy', 
+    playlistName, 
+    'Chill playlist created from your liked songs'
+  ).catch(err => console.error('Job error:', err));
 
-    const result = await createSinglePlaylist(
-      accessToken,
-      playlistName,
-      'Chill playlist created from your liked songs',
-      tracks
-    );
-
-    res.json({
-      success: result.success,
-      message: result.success 
-        ? `Chill playlist "${playlistName}" created successfully with ${tracks.length} tracks!`
-        : 'Failed to create playlist',
-      details: {
-        playlistName,
-        trackCount: tracks.length,
-        totalSongs,
-        stats
-      }
-    });
-  } catch (error) {
-    console.error('Error creating chill playlist:', error.message);
-    res.status(500).json({
-      success: false,
-      message: error.message || 'Error creating chill playlist. Please try again.',
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
-    });
-  }
+  // Return job ID immediately
+  res.json({
+    success: true,
+    jobId,
+    message: 'Playlist creation started. Check progress with the job ID.',
+    checkUrl: `/api/job/${jobId}`
+  });
 });
+
+/**
+ * Test helper to reset in-memory stores between test cases
+ */
+function resetTestState() {
+  jobStore.clear();
+  requestQueue = [];
+  activeRequests = 0;
+  apiCache.flushAll();
+}
 
 /**
  * Start server
  * Listens on the configured port (default: 3000)
  */
-app.listen(port, () => {
-  console.log(`Server running at http://localhost:${port}`);
-});
+if (require.main === module) {
+  app.listen(port, () => {
+    console.log(`Server running at http://localhost:${port}`);
+  });
+}
+
+module.exports = {
+  app,
+  createJob,
+  updateJob,
+  getJob,
+  cleanupOldJobs,
+  ensureAuthenticated,
+  refreshTokenIfNeeded,
+  ensureValidToken,
+  queueRequest,
+  makeSpotifyRequest,
+  delay,
+  makeCachedSpotifyRequest,
+  getUserCacheKey,
+  clearUserCache,
+  getSessionCachedData,
+  prefetchUserData,
+  validatePlaylistName,
+  sanitizePlaylistName,
+  createSinglePlaylist,
+  fetchAndCategorizeTracks,
+  categorizeTrack,
+  calculateDiscoveryRatio,
+  getHourMessage,
+  formatHourRange,
+  generateHeatmapData,
+  processPlaylistJob,
+  resetTestState
+};

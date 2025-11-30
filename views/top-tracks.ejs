@@ -288,6 +288,45 @@
                 justify-content: center;
             }
         }
+
+        .loading-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(42, 31, 28, 0.95);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+        }
+
+        .loading-overlay.active {
+            display: flex;
+        }
+
+        .spinner {
+            border: 4px solid var(--light-bg);
+            border-top: 4px solid var(--indian-yellow);
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin-bottom: 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .loading-text {
+            color: var(--indian-yellow);
+            font-size: 1.2em;
+            font-family: 'IBM Plex Mono', monospace;
+        }
     </style>
 </head>
 <body>
@@ -407,10 +446,23 @@
         <% } %>
     </div>
 
+    <div id="loading-overlay" class="loading-overlay">
+        <div class="spinner"></div>
+        <div class="loading-text">Loading tracks...</div>
+    </div>
+
     <script>
+        const loadingOverlay = document.getElementById('loading-overlay');
+        
         document.getElementById('time-range-select').addEventListener('change', function() {
+            loadingOverlay.classList.add('active');
             const timeRange = this.value;
             window.location.href = `/get-top-tracks?time_range=${timeRange}`;
+        });
+
+        // Show loading when clicking back button
+        document.querySelector('.back-button')?.addEventListener('click', () => {
+            loadingOverlay.classList.add('active');
         });
     </script>
 </body>

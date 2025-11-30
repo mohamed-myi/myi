@@ -22,7 +22,7 @@ myi (Music Insights & Intelligence) transforms your Spotify listening data into 
 
 - **Discovery vs Comfort Ratio**: Analyzes your recent listening to determine how much you're exploring new music versus sticking to familiar favorites
 - **Weekly Listening Heatmap**: Visual representation of your listening patterns across days of the week (Work in Progress)
-- **Artist Deep Dive**: Discover how much of your favorite artists' discographies you've explored and find missing tracks (Work in Progress)
+- **Artist Deep Dive** *(temporarily disabled while we refactor the background job pipeline)*: Discover how much of your favorite artists' discographies you've explored and find missing tracks (Work in Progress)
 
 ## Tech Stack
 
@@ -103,6 +103,9 @@ Spotify-App/
 ├── public/
 │   ├── index.html           # Login/landing page
 │   └── style.css            # Global stylesheet
+├── tests/                    # Jest unit tests + helpers
+│   ├── app.test.js          # Core business-logic test suite
+│   └── setupEnv.js          # Test environment bootstrap
 └── views/                    # EJS templates
     ├── main-menu.ejs        # Main navigation menu
     ├── dashboard.ejs        # Listening insights dashboard
@@ -118,6 +121,8 @@ Spotify-App/
 
 ### Playlist Creator
 
+> **Temporary notice:** Playlist creation endpoints (`/create-playlist/*` and `/create-artist-playlist/:artistId`) are currently disabled while we refactor the background job pipeline. All other analytics features remain available; this section describes the intended behavior once the feature returns.
+
 The playlist creator analyzes your liked songs using Spotify's audio features API:
 
 - **Valence**: Musical positiveness (0.0 to 1.0) - how positive/happy the track sounds
@@ -127,6 +132,10 @@ The playlist creator analyzes your liked songs using Spotify's audio features AP
 - **Energetic**: valence > 0.6 AND energy > 0.6
 - **Chill**: valence < 0.4 AND energy < 0.5
 - **Mellow**: All other tracks
+
+### Artist Deep Dive
+
+> **Temporary notice:** Artist Deep Dive is also unavailable while we refactor the background job pipeline. The UI will display a maintenance message until the refreshed experience ships.
 
 ### Rate Limiting & Performance
 
@@ -182,11 +191,10 @@ The following features are currently under active development:
 - Check that all required environment variables are set in your `.env` file
 - Verify your Spotify account has sufficient listening history
 
-### Playlist creation fails
-- Ensure you have liked songs in your Spotify library
-- Verify your app has all required scopes (permissions) in the Spotify Developer Dashboard
-- For users with 1000+ liked songs, playlist creation may take several minutes
-- Check browser console for specific error messages
+### Playlist creation & Artist Deep Dive unavailable
+- Playlist builder endpoints and Artist Deep Dive are temporarily disabled (see notes above)
+- No action is required on your end; the features will return after the job pipeline upgrade
+- Track progress in the repository issues board
 
 ### Rate limiting errors
 - The application handles rate limits automatically with retry logic
@@ -207,6 +215,19 @@ npm run dev
 ```
 
 This uses nodemon to automatically restart the server on file changes.
+
+### Testing
+
+Automated tests are powered by [Jest 30](https://jestjs.io/). The suite mocks Spotify HTTP calls and focuses on the in-memory job system, rate-limit queue, token refresh logic, caching helpers, and analytics utilities.
+
+```bash
+npm test
+```
+
+Key notes:
+- Tests run in `NODE_ENV=test` with safe default credentials defined in `tests/setupEnv.js`
+- Coverage is collected for `app.js`; view the HTML report under `coverage/` after running `npm test -- --coverage`
+- The exported helpers (`resetTestState`, `createJob`, etc.) allow deterministic unit tests without spinning up the Express server
 
 ### Code Structure
 
