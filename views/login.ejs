@@ -7,6 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/style.css">
     <style>
         /* Bronze Color Palette */
         :root {
@@ -112,22 +113,27 @@
         }
 
         .brand-logo {
-            font-family: 'IBM Plex Mono', monospace;
-            font-size: 7em;
-            font-weight: 700;
-            letter-spacing: 4px;
-            color: var(--white);
-            text-shadow: 2px 2px 8px rgba(0, 0, 0, 0.5);
-            margin-bottom: 10px;
+            display: flex;
+            justify-content: center;
+            margin-bottom: 20px;
+        }
+
+        .brand-logo .myi-logo-circle {
+            --logo-diameter: 80px;
+            --logo-border: 2px;
+            --logo-font-size: 1.5rem;
+            --logo-letter-spacing: 0.2rem;
+            font-weight: 800;
         }
 
         .brand-tagline {
             font-family: 'IBM Plex Mono', monospace;
-            font-size: 1.2em;
-            color: rgba(255, 255, 255, 0.7);
-            letter-spacing: 3px;
-            font-weight: 300;
-            margin-bottom: 50px;
+            font-size: 1.6em;
+            color: var(--white);
+            letter-spacing: 1px;
+            font-weight: 600;
+            margin-bottom: 30px;
+            text-transform: none;
         }
 
         .login-description {
@@ -226,8 +232,10 @@
     </div>
 
     <div class="login-container">
-        <div class="brand-logo">myi</div>
-        <div class="brand-tagline">Music Insights</div>
+        <div class="brand-logo">
+            <span class="myi-logo-circle myi-logo-circle--large">MYI</span>
+        </div>
+        <div class="brand-tagline">Music Intelligence</div>
         
         <p class="login-description">
             Discover your listening patterns, explore your top tracks and artists, 

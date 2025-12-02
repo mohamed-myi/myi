@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>myi - Music Insights</title>
+    <title>myi - Music Intelligence</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -200,23 +200,26 @@
         }
 
         .brand-logo {
-            font-family: 'IBM Plex Mono', monospace;
-            font-size: 9.45em;
-            font-weight: 700;
-            letter-spacing: 4px;
-            color: var(--white);
-            text-shadow: 2px 2px 8px rgba(0, 0, 0, 0.5);
-            margin-bottom: 15px;
-            position: relative;
-            display: inline-block;
+            display: flex;
+            justify-content: center;
+            margin-bottom: 20px;
         }
 
-        .brand-tagline {
-            font-family: 'IBM Plex Mono', monospace;
-            font-size: 1.365em;
-            color: rgba(255, 255, 255, 0.7);
-            letter-spacing: 3px;
-            font-weight: 300;
+        .brand-logo .myi-logo-circle {
+            --logo-diameter: clamp(12rem, 30vw, 17rem);
+            --logo-font-size: clamp(3.2rem, 7vw, 4.2rem);
+            --logo-letter-spacing: clamp(0.4rem, 1.4vw, 0.7rem);
+            flex-direction: column;
+            gap: 0.25em;
+        }
+
+        .brand-logo .myi-logo-circle .logo-tagline {
+            font-size: clamp(0.55rem, 1.6vw, 0.85rem);
+            font-weight: 400;
+            letter-spacing: 0.12em;
+            color: rgba(255, 255, 255, 0.75);
+            text-transform: uppercase;
+            margin-top: 0.15em;
         }
 
         .feature-grid {
@@ -471,8 +474,9 @@
     
     <div class="main-container">
         <div class="brand-header">
-            <div class="brand-logo">myi</div>
-            <div class="brand-tagline">Music Insights</div>
+            <div class="brand-logo">
+                <span class="myi-logo-circle myi-logo-circle--large">MYI<span class="logo-tagline">Music Intelligence</span></span>
+            </div>
         </div>
 
         <div class="feature-grid">

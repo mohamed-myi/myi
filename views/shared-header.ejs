@@ -1,4 +1,7 @@
 <header class="page-header">
+    <a href="/menu" class="page-logo myi-corner-logo" aria-label="Return to main menu">
+        <span class="myi-logo-circle myi-logo-circle--small">MYI</span>
+    </a>
     <div class="header-content">
         <a href="/menu" class="back-button">
             <span class="back-arrow">←</span> Return to Menu
@@ -26,13 +29,26 @@
 
     .page-header {
         background: linear-gradient(135deg, var(--old-burgundy) 0%, var(--bronze-dark) 100%);
-        padding: 30px 20px;
+        padding: 30px 20px 30px 150px;
         border-radius: 15px;
         margin-bottom: 30px;
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6);
         border: 1px solid rgba(203, 152, 79, 0.2);
         position: relative;
         z-index: 10;
+    }
+
+    .page-logo {
+        text-decoration: none;
+        position: absolute;
+        top: 22px;
+        left: 25px;
+        display: inline-flex;
+    }
+
+    .page-logo .myi-logo-circle {
+        --logo-diameter: 64px;
+        --logo-font-size: 1.35rem;
     }
 
     .header-content {
@@ -95,6 +111,27 @@
         text-align: center;
         font-family: 'IBM Plex Mono', monospace;
         max-width: 600px;
+    }
+
+    @media (max-width: 720px) {
+        .page-header {
+            padding-left: 120px;
+        }
+
+        .page-logo {
+            top: 18px;
+            left: 18px;
+        }
+    }
+
+    @media (max-width: 520px) {
+        .page-header {
+            padding-left: 100px;
+        }
+
+        .page-logo .myi-logo-circle {
+            transform: scale(0.9);
+        }
     }
 </style>
 

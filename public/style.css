@@ -157,3 +157,78 @@ canvas {
     margin: 20px auto;
     display: block;
 }
+
+/* MYI Brand System */
+@keyframes logoPulse {
+    0%, 100% { border-color: rgba(255, 255, 255, 1); }
+    50% { border-color: rgba(255, 255, 255, 0.35); }
+}
+
+.myi-logo-circle {
+    --logo-diameter: 4.5rem;
+    --logo-border: 1.5px;
+    --logo-font-size: 1.1rem;
+    --logo-letter-spacing: 0.18rem;
+    width: var(--logo-diameter);
+    height: var(--logo-diameter);
+    border-radius: 50%;
+    border: var(--logo-border) solid var(--white, #FFFFFF);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'IBM Plex Mono', monospace;
+    font-weight: 600;
+    font-size: var(--logo-font-size);
+    letter-spacing: var(--logo-letter-spacing);
+    text-transform: uppercase;
+    color: var(--white, #FFFFFF);
+    text-decoration: none;
+    background:
+        radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.12), transparent 55%),
+        linear-gradient(140deg, var(--bronze-dark, #563727) 0%, var(--old-burgundy, #372C2E) 100%);
+    box-shadow:
+        0 18px 40px rgba(0, 0, 0, 0.55),
+        inset 0 0 30px rgba(203, 152, 79, 0.25);
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
+    line-height: 1;
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+    animation: logoPulse 4s ease-in-out infinite;
+}
+
+.myi-logo-circle--large {
+    --logo-diameter: clamp(9rem, 24vw, 13rem);
+    --logo-border: 1.5px;
+    --logo-font-size: clamp(2.4rem, 6vw, 3.2rem);
+    --logo-letter-spacing: clamp(0.3rem, 1vw, 0.5rem);
+}
+
+.myi-logo-circle--small {
+    --logo-diameter: 60px;
+    --logo-border: 1.5px;
+    --logo-font-size: 1.1rem;
+    --logo-letter-spacing: 0.15rem;
+}
+
+.myi-logo-circle:hover,
+.myi-logo-circle:focus-visible {
+    transform: translateY(-2px);
+    box-shadow:
+        0 24px 50px rgba(0, 0, 0, 0.6),
+        inset 0 0 32px rgba(203, 152, 79, 0.35);
+    animation-play-state: paused;
+}
+
+.myi-corner-logo {
+    position: absolute;
+    top: 25px;
+    left: 25px;
+    z-index: 20;
+    text-decoration: none;
+}
+
+.myi-corner-logo--fixed {
+    position: fixed;
+    top: 20px;
+    left: 20px;
+    z-index: 1200;
+}
