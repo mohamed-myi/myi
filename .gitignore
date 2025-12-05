@@ -29,3 +29,6 @@ sessions/
 # Build files
 dist/
 build/
+
+# Project documentation (for AI parsing)
+ProjectBrief.md

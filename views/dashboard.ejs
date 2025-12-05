@@ -408,9 +408,8 @@
         <div class="line-pattern line-pattern-3"></div>
     </div>
     <div class="dashboard-container">
-        <%- include('shared-header', { title: 'Insights', subtitle: 'Your music listening patterns and statistics' }) %>
+        <%- include('shared-header', { title: 'Listening Insights' }) %>
         
-        <!-- Data Range Selector -->
         <div class="time-range-selector">
             <label for="limit-select" style="color: var(--white); margin-right: 10px; font-family: 'IBM Plex Mono', monospace;">Recent Tracks:</label>
             <select id="limit-select" class="time-range-dropdown">
@@ -433,7 +432,6 @@
                 const peakHour = timeData.length > 0 ? timeData.indexOf(Math.max(...timeData)) : 0;
             %>
             
-            <!-- Stats Summary -->
             <div class="stats-grid">
                 <div class="stat-card">
                     <h3>TOTAL TIME (24H)</h3>
@@ -469,7 +467,6 @@
                 </div>
             </div>
 
-            <!-- Discovery vs Comfort Ratio -->
             <% if (typeof discoveryData !== 'undefined' && discoveryData && discoveryData.totalTracks > 0) { %>
                 <div class="discovery-comfort-container">
                     <h2 class="section-title">Discovery vs Comfort</h2>
@@ -510,7 +507,6 @@
                 </div>
             <% } %>
 
-            <!-- Session Heatmap -->
             <% if (typeof heatmapData !== 'undefined' && heatmapData && heatmapData.dayData) { %>
                 <div class="heatmap-container">
                     <h2 class="section-title">Listening Heatmap</h2>
@@ -547,7 +543,6 @@
                 </div>
             <% } %>
 
-            <!-- Line chart for listening time -->
             <% if (timeData.length > 0) { %>
             <div class="chart-container">
                     <h2>Listening Time by Hour</h2>
@@ -557,7 +552,6 @@
                 </div>
             <% } %>
 
-            <!-- Pie chart for genres -->
             <% if (genres.length > 0 && genreCounts.length > 0) { %>
                 <div class="chart-container">
                     <h2>Recently Played Genres</h2>

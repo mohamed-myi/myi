@@ -1,16 +1,14 @@
+<a href="/menu" class="page-logo myi-corner-logo" aria-label="Return to main menu">
+    <span class="myi-logo-circle myi-logo-circle--small">MYI</span>
+</a>
+
 <header class="page-header">
-    <a href="/menu" class="page-logo myi-corner-logo" aria-label="Return to main menu">
-        <span class="myi-logo-circle myi-logo-circle--small">MYI</span>
+    <a href="/menu" class="back-button">
+        <span class="back-arrow">←</span> Return to Menu
     </a>
     <div class="header-content">
-        <a href="/menu" class="back-button">
-            <span class="back-arrow">←</span> Return to Menu
-        </a>
         <div class="header-title">
             <h1><%= title %></h1>
-            <% if (typeof subtitle !== 'undefined' && subtitle) { %>
-                <p class="header-subtitle"><%= subtitle %></p>
-            <% } %>
         </div>
     </div>
 </header>
@@ -29,7 +27,7 @@
 
     .page-header {
         background: linear-gradient(135deg, var(--old-burgundy) 0%, var(--bronze-dark) 100%);
-        padding: 30px 20px 30px 150px;
+        padding: 30px 20px;
         border-radius: 15px;
         margin-bottom: 30px;
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6);
@@ -40,10 +38,11 @@
 
     .page-logo {
         text-decoration: none;
-        position: absolute;
-        top: 22px;
-        left: 25px;
+        position: fixed;
+        top: 20px;
+        left: 20px;
         display: inline-flex;
+        z-index: 100;
     }
 
     .page-logo .myi-logo-circle {
@@ -69,8 +68,9 @@
         border: 1px solid var(--russet);
         transition: all 0.3s ease;
         font-weight: 600;
-        margin-bottom: 15px;
-        position: relative;
+        position: absolute;
+        top: 22px;
+        left: 25px;
         z-index: 11;
         cursor: pointer;
     }
@@ -96,7 +96,7 @@
 
     .header-title h1 {
         color: var(--white);
-        font-size: 2.625em;
+        font-size: 2.1em;
         margin: 0;
         text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
         font-weight: 600;
@@ -104,33 +104,27 @@
         letter-spacing: 1px;
     }
 
-    .header-subtitle {
-        color: rgba(255, 255, 255, 0.85);
-        font-size: 1.155em;
-        margin: 15px auto 0;
-        text-align: center;
-        font-family: 'IBM Plex Mono', monospace;
-        max-width: 600px;
-    }
 
     @media (max-width: 720px) {
-        .page-header {
-            padding-left: 120px;
-        }
-
         .page-logo {
             top: 18px;
             left: 18px;
         }
+
+        .back-button {
+            top: 18px;
+            left: 20px;
+        }
     }
 
     @media (max-width: 520px) {
-        .page-header {
-            padding-left: 100px;
-        }
-
         .page-logo .myi-logo-circle {
             transform: scale(0.9);
+        }
+
+        .back-button {
+            padding: 8px 14px;
+            font-size: 0.9em;
         }
     }
 </style>

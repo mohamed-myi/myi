@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Your Top Artists</title>
+    <title>Top Artists</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -298,9 +298,8 @@
         <div class="line-pattern line-pattern-3"></div>
     </div>
     <div class="container">
-        <%- include('shared-header', { title: 'Your Top Artists', subtitle: 'Explore your favorite musicians' }) %>
+        <%- include('shared-header', { title: 'Top Artists' }) %>
         
-        <!-- Time Range Selector -->
         <div class="time-range-selector">
             <label for="time-range-select" style="color: var(--white); margin-right: 10px; font-family: 'IBM Plex Mono', monospace;">Time Range:</label>
             <select id="time-range-select" class="time-range-dropdown">
@@ -327,7 +326,6 @@
                     : 0;
             %>
             
-            <!-- Stats Summary -->
             <div class="stats-summary">
                 <div class="stat">
                     <div class="stat-label">TOTAL ARTISTS</div>
@@ -347,7 +345,6 @@
                 </div>
             </div>
 
-            <!-- Artists List -->
             <ul>
                 <% validArtists.forEach((artist, index) => { %>
                     <li class="artist-item">
@@ -401,7 +398,6 @@
                                 <% } %>
                             </div>
 
-                            <!-- Top track container (lazy loaded) -->
                             <div class="top-track" id="top-track-<%= artist.id %>" data-artist-id="<%= artist.id %>" data-loaded="false">
                                 <div class="top-track-label">Most Popular Track</div>
                                 <div class="top-track-name top-track-loading">Loading...</div>

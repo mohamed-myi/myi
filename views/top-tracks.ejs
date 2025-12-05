@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Your Top Spotify Tracks</title>
+    <title>Top Spotify Tracks</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -336,9 +336,8 @@
         <div class="line-pattern line-pattern-3"></div>
     </div>
     <div class="container">
-        <%- include('shared-header', { title: 'Your Top Spotify Tracks', subtitle: 'Discover your most played songs' }) %>
+        <%- include('shared-header', { title: 'Top Spotify Tracks' }) %>
         
-        <!-- Time Range Selector -->
         <div class="time-range-selector">
             <label for="time-range-select" style="color: var(--white); margin-right: 10px; font-family: 'IBM Plex Mono', monospace;">Time Range:</label>
             <select id="time-range-select" class="time-range-dropdown">
@@ -365,7 +364,6 @@
                 const totalDuration = validTracks.reduce((sum, t) => sum + (t.duration_ms || 0), 0);
             %>
             
-            <!-- Stats Summary -->
             <div class="stats-summary">
                 <div class="stat">
                     <div class="stat-label">TOTAL TRACKS</div>
@@ -385,7 +383,6 @@
                 </div>
             </div>
 
-            <!-- Tracks List -->
             <ul>
                 <% validTracks.forEach((track, index) => { %>
                     <li class="track-item">

@@ -7,18 +7,16 @@ body {
 }
 
 h1 {
-    color: #1DB954;
+    color: #1DB954; /* Spotify brand green */
     text-align: center;
 }
 
-/* Main Menu */
 .menu-container {
     width: 80%;
     margin: 0 auto;
     text-align: center;
 }
 
-/* Top Menu Buttons*/
 .menu-buttons {
     display: flex;
     justify-content: space-around;
@@ -37,10 +35,9 @@ h1 {
 
 .menu-buttons .menu-button:hover {
     background-color: #1DB954;
-    color: #121212;
+    color: #121212; /* Invert colors on hover for emphasis */
 }
 
-/* Playlist Creation Section*/
 .section-title {
     font-size: 1.8em;
     margin-bottom: 20px;
@@ -56,7 +53,7 @@ h1 {
 .playlist-section {
     margin: 10px 0;
     text-align: center;
-    width: 80%; /* Adjust width of input boxes */
+    width: 80%;
 }
 
 .playlist-section label {
@@ -79,7 +76,6 @@ h1 {
     color: #999;
 }
 
-/* Centered Submit Button */
 .submit-container {
     margin-top: 20px;
     text-align: center;
@@ -96,10 +92,9 @@ h1 {
 }
 
 .submit-button:hover {
-    background-color: #1AA34A;
+    background-color: #1AA34A; /* Slightly darker green for hover state */
 }
 
-/* Top Tracks, Artists, Albums Pages */
 ul {
     list-style-type: none;
     padding: 0;
@@ -125,7 +120,6 @@ img {
     margin-right: 15px;
 }
 
-/* Top Tracks */
 .track-info {
     display: flex;
     align-items: center;
@@ -140,35 +134,27 @@ img {
     font-size: 0.9em;
 }
 
-/*Top Artists */
 .artist-info {
     display: flex;
     align-items: center;
 }
 
-.track-info {
-    margin-top: 10px;
-    color: #b3b3b3;
-}
-
-
-/* Listening Insights Dashboard */
 canvas {
     margin: 20px auto;
     display: block;
 }
 
-/* MYI Brand System */
+
 @keyframes logoPulse {
     0%, 100% { border-color: rgba(255, 255, 255, 1); }
-    50% { border-color: rgba(255, 255, 255, 0.35); }
+    50% { border-color: rgba(255, 255, 255, 0.35); } /* Subtle 4s pulse creates "breathing" effect */
 }
 
 .myi-logo-circle {
     --logo-diameter: 4.5rem;
     --logo-border: 1.5px;
     --logo-font-size: 1.1rem;
-    --logo-letter-spacing: 0.18rem;
+    --logo-letter-spacing: 0.18rem; /* Extra spacing for monospace readability */
     width: var(--logo-diameter);
     height: var(--logo-diameter);
     border-radius: 50%;
@@ -176,17 +162,17 @@ canvas {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    font-family: 'IBM Plex Mono', monospace;
+    font-family: 'IBM Plex Mono', monospace; /* WHY: Monospace font fits brand aesthetic (music = data = code) */
     font-weight: 600;
     font-size: var(--logo-font-size);
     letter-spacing: var(--logo-letter-spacing);
     text-transform: uppercase;
     color: var(--white, #FFFFFF);
     text-decoration: none;
-    background:
+    background: /* WHY dual gradient: Radial creates subtle shine, linear creates bronze-burgundy depth */
         radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.12), transparent 55%),
         linear-gradient(140deg, var(--bronze-dark, #563727) 0%, var(--old-burgundy, #372C2E) 100%);
-    box-shadow:
+    box-shadow: /* Layered shadows create 3D depth effect */
         0 18px 40px rgba(0, 0, 0, 0.55),
         inset 0 0 30px rgba(203, 152, 79, 0.25);
     text-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
@@ -196,14 +182,14 @@ canvas {
 }
 
 .myi-logo-circle--large {
-    --logo-diameter: clamp(9rem, 24vw, 13rem);
+    --logo-diameter: clamp(9rem, 24vw, 13rem); /* Responsive sizing: min 9rem, scales to 24% viewport width, max 13rem */
     --logo-border: 1.5px;
     --logo-font-size: clamp(2.4rem, 6vw, 3.2rem);
     --logo-letter-spacing: clamp(0.3rem, 1vw, 0.5rem);
 }
 
 .myi-logo-circle--small {
-    --logo-diameter: 60px;
+    --logo-diameter: 60px; /* Fixed size for corner logo (no scaling needed) */
     --logo-border: 1.5px;
     --logo-font-size: 1.1rem;
     --logo-letter-spacing: 0.15rem;
@@ -211,11 +197,11 @@ canvas {
 
 .myi-logo-circle:hover,
 .myi-logo-circle:focus-visible {
-    transform: translateY(-2px);
+    transform: translateY(-2px); /* Subtle lift effect on hover */
     box-shadow:
         0 24px 50px rgba(0, 0, 0, 0.6),
         inset 0 0 32px rgba(203, 152, 79, 0.35);
-    animation-play-state: paused;
+    animation-play-state: paused; /* Stop pulse animation during interaction */
 }
 
 .myi-corner-logo {
@@ -227,8 +213,8 @@ canvas {
 }
 
 .myi-corner-logo--fixed {
-    position: fixed;
+    position: fixed; /* WHY fixed: Remains visible during scroll on longer pages */
     top: 20px;
     left: 20px;
-    z-index: 1200;
+    z-index: 1200; /* High z-index ensures logo stays above dashboard charts */
 }
