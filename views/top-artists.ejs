@@ -429,12 +429,11 @@
             window.location.href = `/get-top-artists?time_range=${timeRange}`;
         });
 
-        // Show loading when clicking back button
         document.querySelector('.back-button')?.addEventListener('click', () => {
             loadingOverlay.classList.add('active');
         });
 
-        // Lazy load top tracks using Intersection Observer
+        // Lazy load top tracks
         const topTrackContainers = document.querySelectorAll('.top-track[data-artist-id]');
         
         async function loadTopTrack(container) {
@@ -471,7 +470,6 @@
             }
         }
 
-        // Use Intersection Observer for lazy loading
         if ('IntersectionObserver' in window) {
             const observer = new IntersectionObserver((entries) => {
                 entries.forEach(entry => {
@@ -481,7 +479,7 @@
                     }
                 });
             }, {
-                rootMargin: '100px', // Start loading 100px before visible
+                rootMargin: '100px',
                 threshold: 0.1
             });
 
@@ -489,7 +487,6 @@
                 observer.observe(container);
             });
         } else {
-            // Fallback for older browsers: load all
             topTrackContainers.forEach(loadTopTrack);
         }
     </script>

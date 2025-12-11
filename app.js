@@ -7,29 +7,23 @@ const SpotifyStrategy = require('passport-spotify').Strategy;
 const axios = require('axios');
 const NodeCache = require('node-cache');
 
-// 3-Tier Caching Architecture (reduces API load by ~70%):
-// Tier 1: API Response Cache (node-cache) - Shared across all user sessions, 5min TTL
-// Tier 2: Session Cache (req.user.sessionCache) - Per-user in-memory, survives across requests
-// Tier 3: Client Prefetch (main-menu.ejs) - Browser-side hover prefetching
-// WHY node-cache: Simpler than Redis for single-server deployment, no external dependencies
+// 3-tier caching: API cache (5min), session cache, client prefetch
 const apiCache = new NodeCache({ 
-  stdTTL: 300, // 5min balances freshness vs API quota (Spotify allows ~180 requests/min)
-  checkperiod: 60, // Memory cleanup every 60s prevents unbounded growth
-  useClones: false // Skip deep cloning for 30% faster cache hits, safe because we don't mutate responses
+  stdTTL: 300,
+  checkperiod: 60,
+  useClones: false // Faster cache hits, safe for immutable responses
 });
 
-// Background job system enables non-blocking playlist creation for large libraries (2000+ tracks)
-// WHY Map over DB: Jobs are ephemeral (1hr lifetime), Map provides O(1) lookups without I/O overhead
-const jobStore = new Map(); // jobId → {id, type, status, progress, message, result, error, createdAt}
+// Background job system for async playlist creation
+const jobStore = new Map();
 
-function createJob(type, data) { // O(1) - Simple Map insertion
-  const jobId = `${type}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`; // Timestamp + random suffix prevents collisions in parallel requests
-  // Job lifecycle: pending → processing → completed/failed. Auto-cleanup after 1hr prevents memory leaks
+function createJob(type, data) {
+  const jobId = `${type}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   jobStore.set(jobId, {
     id: jobId,
     type,
-    status: 'pending', // Polled by client via /api/job/:jobId
-    progress: 0, // 0-100 percentage for UX feedback
+    status: 'pending',
+    progress: 0,
     message: 'Starting...',
     data,
     result: null,
@@ -39,29 +33,28 @@ function createJob(type, data) { // O(1) - Simple Map insertion
   return jobId;
 }
 
-function updateJob(jobId, updates) { // O(1) - Map lookup + assignment
+function updateJob(jobId, updates) {
   const job = jobStore.get(jobId);
   if (job) {
-    Object.assign(job, updates); // Shallow merge allows partial updates
+    Object.assign(job, updates);
     jobStore.set(jobId, job);
   }
 }
 
-function getJob(jobId) { // O(1) - Direct Map lookup
+function getJob(jobId) {
   return jobStore.get(jobId) || null;
 }
 
-function cleanupOldJobs() { // O(n) where n = job count, runs every 30min
+// Cleanup jobs older than 1hr
+function cleanupOldJobs() {
   const oneHourAgo = Date.now() - (60 * 60 * 1000);
   for (const [jobId, job] of jobStore.entries()) {
     if (job.createdAt < oneHourAgo && (job.status === 'completed' || job.status === 'failed')) {
-      jobStore.delete(jobId); // Remove old jobs to prevent unbounded memory growth
+      jobStore.delete(jobId);
     }
   }
 }
 
-// WHY 30min interval: Balances memory pressure (jobs complete in 1-5min) with cleanup overhead
-// MAINTENANCE: Interval skipped in test env to prevent Jest from hanging on open handles
 if (process.env.NODE_ENV !== 'test') {
   setInterval(cleanupOldJobs, 30 * 60 * 1000);
 }
@@ -69,112 +62,84 @@ if (process.env.NODE_ENV !== 'test') {
 const app = express();
 const port = process.env.PORT || 3000;
 
-// Configuration Constants - All timing values and thresholds with rationale
-// MAINTENANCE: Changing these affects rate limiting, UX, and API quota consumption
-
-// Mood Classification Thresholds (Spotify audio features range: 0.0-1.0)
-// WHY these values: Empirically tested on 1000+ tracks to create meaningful separation
-// Valence = musical positiveness (happy/cheerful vs sad/angry)
-// Energy = intensity/activity (loud/fast vs calm/slow)
+// Configuration constants
 const MOOD_THRESHOLDS = {
-  ENERGETIC_VALENCE: 0.6, // 60th percentile - catches upbeat tracks without being too restrictive
-  ENERGETIC_ENERGY: 0.6,  // Both must exceed 0.6 to avoid false positives (sad but loud songs)
-  LOW_ENERGY_VALENCE: 0.4, // Below 40th percentile - filters for genuinely calm tracks
-  LOW_ENERGY_ENERGY: 0.5   // Slightly higher threshold prevents categorizing boring mid-tempo as "chill"
+  ENERGETIC_VALENCE: 0.6,
+  ENERGETIC_ENERGY: 0.6,
+  LOW_ENERGY_VALENCE: 0.4,
+  LOW_ENERGY_ENERGY: 0.5
 };
-// Result: ~30% energetic, ~25% chill, ~45% mellow (mellow = catch-all for everything else)
 
-// Spotify API Batch Sizes
-// WHY 50: Spotify officially supports up to 100 for most endpoints, but 50 provides buffer against:
-// - Network timeouts on slow connections (50 tracks ≈ 5KB JSON)
-// - Rate limit edge cases (429 errors reduced by 80% in testing vs batches of 100)
-// - Allows more granular progress updates (better UX for large operations)
 const API_BATCH_SIZES = {
-  TRACKS: 50, // Audio features endpoint: /audio-features?ids=...
-  ARTISTS: 50, // Artists endpoint: /artists?ids=...
-  PLAYLIST_TRACKS: 50 // Add tracks to playlist: /playlists/{id}/tracks
+  TRACKS: 50,
+  ARTISTS: 50,
+  PLAYLIST_TRACKS: 50
 };
 
-// Token & Request Management
-const TOKEN_REFRESH_BUFFER = 5 * 60 * 1000; // 5min before expiry - WHY: Prevents mid-operation token expiration (operations can take 3-5min)
-const MAX_RETRIES = 3; // WHY: Covers transient failures (network blips, temporary rate limits) without excessive retry storms
-const RETRY_DELAY_BASE = 1000; // 1s base for exponential backoff - WHY: Formula is delay = base * 2^attempt, gives 1s, 2s, 4s delays
-const REQUEST_DELAY = 100; // 100ms between batch requests - WHY: Spreads load to avoid triggering Spotify's rate limiter (allows ~600 req/min with headroom)
-const MAX_CONCURRENT_REQUESTS = 5; // WHY: Balance between parallelism and rate limits. Testing showed 5 is optimal (10 caused 429s, 3 was too slow)
+const TOKEN_REFRESH_BUFFER = 5 * 60 * 1000; // Refresh 5min before expiry
+const MAX_RETRIES = 3;
+const RETRY_DELAY_BASE = 1000; // Exponential backoff: 1s, 2s, 4s
+const REQUEST_DELAY = 100;
+const MAX_CONCURRENT_REQUESTS = 5;
+const MAX_SONGS_LIMIT = 2000; // Prevent timeout on large libraries
+const IS_ARTIST_DIVE_DISABLED = process.env.ARTIST_DIVE_DISABLED !== 'false';
 
-// User Experience Limits
-const MAX_SONGS_LIMIT = 2000; // WHY: Prevents >5min operations that cause browser/server timeouts. 2000 tracks = ~40 API calls = ~2min processing
-const IS_ARTIST_DIVE_DISABLED = process.env.ARTIST_DIVE_DISABLED !== 'false'; // Feature flag for WIP features
-
-// Environment variable validation - Fail fast on startup if config is incomplete
+// Validate required environment variables
 const requiredEnvVars = ['SPOTIFY_CLIENT_ID', 'SPOTIFY_CLIENT_SECRET', 'SESSION_SECRET'];
 const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
 if (missingVars.length > 0) {
   console.error('Missing required environment variables:', missingVars.join(', '));
-  console.error('Please set these in your .env file');
-  process.exit(1); // Exit code 1 signals configuration error to process managers (pm2, systemd)
+  process.exit(1);
 }
 
 console.log('=== Spotify OAuth Configuration ===');
 console.log('Client ID:', process.env.SPOTIFY_CLIENT_ID);
-console.log('Client ID length:', process.env.SPOTIFY_CLIENT_ID?.length); // Helpful for debugging copy-paste errors (should be 32 chars)
 console.log('Callback URL:', process.env.CALLBACK_URL || 'http://localhost:3000/callback');
 console.log('===================================');
 
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 
-app.use(express.urlencoded({ extended: true })); // Parse form submissions
-app.use(express.json()); // Parse JSON request bodies for API endpoints
+app.use(express.urlencoded({ extended: true }));
+app.use(express.json());
 
-// Session Security Configuration
-// WHY these settings: Defense against common web attacks (XSS, CSRF, session hijacking)
 app.use(session({
-  secret: process.env.SESSION_SECRET, // SECURITY: Must be strong random string (32+ chars) to prevent session forgery
-  resave: false, // Don't save session if unmodified - reduces I/O and race conditions
-  saveUninitialized: false, // Don't create session until user logs in - reduces storage and GDPR compliance burden
+  secret: process.env.SESSION_SECRET,
+  resave: false,
+  saveUninitialized: false,
   cookie: { 
-    secure: process.env.NODE_ENV === 'production', // SECURITY: HTTPS-only in production prevents session theft over unencrypted connections
-    httpOnly: true, // SECURITY: Prevents JavaScript access to cookie (XSS protection)
-    sameSite: 'lax', // SECURITY: CSRF protection (blocks cross-site POST requests, allows same-site navigation)
-    maxAge: 24 * 60 * 60 * 1000 // 24hr expiry - balances UX (don't force re-login too often) with security (limit stolen token lifetime)
+    secure: process.env.NODE_ENV === 'production',
+    httpOnly: true,
+    sameSite: 'lax',
+    maxAge: 24 * 60 * 60 * 1000
   }
 }));
 
 app.use(passport.initialize());
 app.use(passport.session());
 
-// SECURITY: User object stored in session includes sensitive tokens
-// Structure: {profile, accessToken, refreshToken, expiresAt, market?, sessionCache?}
-passport.serializeUser((user, done) => done(null, user)); // Store entire user object in session
-passport.deserializeUser((obj, done) => done(null, obj)); // Retrieve user object from session
+passport.serializeUser((user, done) => done(null, user));
+passport.deserializeUser((obj, done) => done(null, obj));
 
-// Spotify OAuth 2.0 Strategy
-// SECURITY: Uses authorization code flow (more secure than implicit flow)
-// Tokens stored in session (server-side), never exposed to client JavaScript
 passport.use(new SpotifyStrategy(
   {
     clientID: process.env.SPOTIFY_CLIENT_ID,
     clientSecret: process.env.SPOTIFY_CLIENT_SECRET,
-    callbackURL: process.env.CALLBACK_URL || 'http://127.0.0.1:3000/callback' // WHY 127.0.0.1: Some OAuth providers require exact IP match
+    callbackURL: process.env.CALLBACK_URL || 'http://127.0.0.1:3000/callback'
   },
   (accessToken, refreshToken, expires_in, profile, done) => {
     console.log('User authenticated:', profile.id);
-    // SECURITY: Store tokens in session object (server-side only, not accessible to client JS)
     return done(null, { 
       profile, 
-      accessToken, // Valid for 1 hour
-      refreshToken, // Used to get new access tokens without re-authentication
-      expiresAt: Date.now() + (expires_in * 1000) // Track expiration for proactive refresh
+      accessToken,
+      refreshToken,
+      expiresAt: Date.now() + (expires_in * 1000)
     });
   }
 ));
 
 app.use(express.static('public'));
 
-// GET /
-// Auth: None (public landing page)
-// Returns: login.ejs or redirect to /menu if already authenticated
 app.get('/', (req, res) => {
   if (req.isAuthenticated()) {
     return res.redirect('/menu');
@@ -182,50 +147,36 @@ app.get('/', (req, res) => {
   res.render('login');
 });
 
-// GET /auth/spotify
-// Auth: None (initiates OAuth flow)
-// Redirects: User to Spotify authorization page
-// Scopes: Requests 7 permissions needed for full app functionality
 app.get('/auth/spotify', passport.authenticate('spotify', {
   scope: [
-    'user-read-email',           // User profile data
-    'user-read-private',         // User country (for market-specific tracks)
-    'user-top-read',             // Top tracks and artists
-    'playlist-modify-public',    // Create public playlists
-    'user-read-recently-played', // Listening history for insights
-    'playlist-modify-private',   // Create private playlists
-    'user-library-read'          // Access liked songs for mood playlists
+    'user-read-email',
+    'user-read-private',
+    'user-top-read',
+    'playlist-modify-public',
+    'user-read-recently-played',
+    'playlist-modify-private',
+    'user-library-read'
   ]
 }));
 
-// GET /callback
-// Auth: Spotify OAuth callback (handled by passport)
-// Returns: Redirect to /menu on success, / on failure
-// Side Effects: Stores tokens in session, triggers background prefetch
 app.get('/callback', passport.authenticate('spotify', { failureRedirect: '/' }), async (req, res) => {
   console.log('User authenticated:', req.user.profile.id);
-  prefetchUserData(req).catch(err => console.error('Prefetch error:', err.message)); // Fire-and-forget cache warming
+  prefetchUserData(req).catch(err => console.error('Prefetch error:', err.message));
   res.redirect('/menu');
 });
 
-// GET /menu
-// Auth: Required (ensureAuthenticated middleware)
-// Returns: main-menu.ejs with navigation options
-// Caching: Client-side hover prefetching (see main-menu.ejs)
 app.get('/menu', ensureAuthenticated, (req, res) => {
   res.render('main-menu');
 });
 
-// SECURITY: Protect routes from unauthenticated access
 function ensureAuthenticated(req, res, next) {
   if (req.isAuthenticated()) {
     return next();
   }
-  res.redirect('/auth/spotify'); // Initiate OAuth flow for unauthenticated users
+  res.redirect('/auth/spotify');
 }
 
-// Token refresh middleware for route-level token management
-// WHY 5min buffer: Prevents token expiration during page render (some pages make multiple API calls)
+// Refresh access token if expiring soon
 async function refreshTokenIfNeeded(req, res, next) {
   if (!req.user) {
     return next();
@@ -233,14 +184,13 @@ async function refreshTokenIfNeeded(req, res, next) {
 
   if (req.user.expiresAt < Date.now() + TOKEN_REFRESH_BUFFER) {
     try {
-      // SECURITY: Use OAuth refresh token flow to get new access token without re-authentication
       const response = await axios.post('https://accounts.spotify.com/api/token', 
         new URLSearchParams({
           grant_type: 'refresh_token',
           refresh_token: req.user.refreshToken
         }), {
           headers: {
-            'Authorization': 'Basic ' + Buffer.from( // Base64 encode client credentials for OAuth
+            'Authorization': 'Basic ' + Buffer.from(
               process.env.SPOTIFY_CLIENT_ID + ':' + process.env.SPOTIFY_CLIENT_SECRET
             ).toString('base64'),
             'Content-Type': 'application/x-www-form-urlencoded'
@@ -249,19 +199,17 @@ async function refreshTokenIfNeeded(req, res, next) {
       );
 
       req.user.accessToken = response.data.access_token;
-      req.user.expiresAt = Date.now() + (response.data.expires_in * 1000); // Spotify tokens valid for 1 hour
+      req.user.expiresAt = Date.now() + (response.data.expires_in * 1000);
       console.log('Token refreshed successfully');
     } catch (error) {
       console.error('Error refreshing token:', error.response ? error.response.data : error.message);
-      return res.redirect('/auth/spotify'); // Force re-authentication if refresh fails (rare: usually means refresh token revoked)
+      return res.redirect('/auth/spotify');
     }
   }
   next();
 }
 
-// Token refresh for long-running background jobs (prevents mid-operation expiration)
-// WHY separate from middleware: Background jobs don't have req/res context, need direct user object access
-// MAINTENANCE: Call this every 10 API batches or before operations >3min
+// Token refresh for background jobs
 async function ensureValidToken(user) {
   if (!user || !user.expiresAt) {
     throw new Error('User session invalid');
@@ -295,16 +243,13 @@ async function ensureValidToken(user) {
   return user.accessToken;
 }
 
-// Request Queue System - Prevents rate limiting by throttling concurrent API calls
-// WHY queue: Spotify rate limits are ~180 requests/min. Without throttling, parallel operations trigger 429 errors
-// Algorithm: Producer-consumer pattern with max concurrency limit
-let requestQueue = []; // Array of {requestFn, resolve, reject} - FIFO order
-let activeRequests = 0; // Current number of in-flight requests
+// Request queue to prevent rate limiting
+let requestQueue = [];
+let activeRequests = 0;
 
-async function processRequestQueue() { // O(1) per call, O(n) total for n queued requests
-  // Process requests up to concurrency limit - recursive calls drain queue automatically
+async function processRequestQueue() {
   while (requestQueue.length > 0 && activeRequests < MAX_CONCURRENT_REQUESTS) {
-    const { requestFn, resolve, reject } = requestQueue.shift(); // O(n) array shift - acceptable since queue stays small (<20 items typically)
+    const { requestFn, resolve, reject } = requestQueue.shift();
     activeRequests++;
     
     try {
@@ -314,23 +259,20 @@ async function processRequestQueue() { // O(1) per call, O(n) total for n queued
       reject(error);
     } finally {
       activeRequests--;
-      processRequestQueue(); // Recursive call processes next queued request
+      processRequestQueue();
     }
   }
 }
 
-function queueRequest(requestFn) { // O(1) - Simple array push
+function queueRequest(requestFn) {
   return new Promise((resolve, reject) => {
-    requestQueue.push({ requestFn, resolve, reject }); // Queue preserves promise resolution context
-    processRequestQueue(); // Kick off processing (idempotent if already running)
+    requestQueue.push({ requestFn, resolve, reject });
+    processRequestQueue();
   });
 }
 
-// Spotify API request wrapper with automatic retry and rate limit handling
-// WHY retry logic: Transient failures (network blips, temporary 429s) are common, auto-retry improves reliability
-// Exponential backoff formula: delay = retryAfter + (base * 2^attempt)
-// Example: 429 with Retry-After=1s → delays of 2s, 3s, 5s for attempts 0,1,2
-async function makeSpotifyRequest(requestFn, retries = MAX_RETRIES, accessToken = null) { // O(retries) worst case
+// Spotify API wrapper with retry logic and exponential backoff
+async function makeSpotifyRequest(requestFn, retries = MAX_RETRIES, accessToken = null) {
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
       return await queueRequest(requestFn);
@@ -338,73 +280,69 @@ async function makeSpotifyRequest(requestFn, retries = MAX_RETRIES, accessToken 
       if (error.response) {
         const status = error.response.status;
         
-        if (status === 429) { // Rate limit hit - Spotify sends Retry-After header
+        if (status === 429) {
           const retryAfter = parseInt(error.response.headers['retry-after'] || '1', 10) * 1000;
-          const delay = retryAfter + (RETRY_DELAY_BASE * Math.pow(2, attempt)); // Exponential backoff prevents retry storms
+          const delay = retryAfter + (RETRY_DELAY_BASE * Math.pow(2, attempt));
           console.log(`Rate limited (429). Retrying after ${delay}ms...`);
           await new Promise(resolve => setTimeout(resolve, delay));
-          continue; // Retry same request
+          continue;
         }
         
-        if (status === 403) { // Forbidden - usually invalid/expired token or insufficient OAuth scopes
+        if (status === 403) {
           console.log(`Forbidden (403) error. Attempt ${attempt + 1}/${retries}`);
           if (attempt < retries - 1) {
-            const delay = RETRY_DELAY_BASE * Math.pow(2, attempt); // Exponential backoff
+            const delay = RETRY_DELAY_BASE * Math.pow(2, attempt);
             console.log(`Waiting ${delay}ms before retry...`);
             await new Promise(resolve => setTimeout(resolve, delay));
             continue;
           }
-          throw new Error('Access forbidden. Please try logging in again.'); // After max retries, surface to user
+          throw new Error('Access forbidden. Please try logging in again.');
         }
       }
-      throw error; // Non-retryable errors (4xx other than 429/403, 5xx, network errors)
+      throw error;
     }
   }
   throw new Error('Max retries exceeded');
 }
 
-function delay(ms) { // Utility for explicit delays between batches
+function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// Tier 1 Cache: API Response Cache (shared across all users)
-// WHY cache: Reduces API quota usage by 70% and improves response times (50ms cache vs 300ms API call)
-async function makeCachedSpotifyRequest(cacheKey, requestFn, ttl = 300) { // O(1) cache lookup
+// API response cache (5min TTL)
+async function makeCachedSpotifyRequest(cacheKey, requestFn, ttl = 300) {
   const cached = apiCache.get(cacheKey);
   if (cached) {
     console.log(`Cache hit: ${cacheKey}`);
-    return cached; // Return cached axios response object directly
+    return cached;
   }
 
   console.log(`Cache miss: ${cacheKey}`);
   const response = await makeSpotifyRequest(requestFn);
-  apiCache.set(cacheKey, response, ttl); // TTL in seconds
+  apiCache.set(cacheKey, response, ttl);
   return response;
 }
 
-// Cache key format: "user:{userId}:{endpoint}:{param1=val1&param2=val2}"
-// WHY sorted params: Ensures cache hit for {a:1,b:2} and {b:2,a:1} (same query, different param order)
-function getUserCacheKey(userId, endpoint, params = {}) { // O(n log n) for n params due to sort
+// Generate deterministic cache keys
+function getUserCacheKey(userId, endpoint, params = {}) {
   const paramStr = Object.entries(params)
-    .sort(([a], [b]) => a.localeCompare(b)) // Alphabetical sort for deterministic keys
+    .sort(([a], [b]) => a.localeCompare(b))
     .map(([k, v]) => `${k}=${v}`)
     .join('&');
   return `user:${userId}:${endpoint}${paramStr ? ':' + paramStr : ''}`;
 }
 
-// Cache invalidation on logout - prevents showing stale data to re-authenticated users
-function clearUserCache(userId) { // O(n) where n = total cache keys
+function clearUserCache(userId) {
   const keys = apiCache.keys();
-  const userKeys = keys.filter(k => k.startsWith(`user:${userId}:`)); // O(n) filter operation
-  userKeys.forEach(k => apiCache.del(k)); // O(m) where m = user's cache entries
+  const userKeys = keys.filter(k => k.startsWith(`user:${userId}:`));
+  userKeys.forEach(k => apiCache.del(k));
   console.log(`Cleared ${userKeys.length} cached entries for user ${userId}`);
 }
 
-// Tier 2 Cache: Session-level cache (per-user, survives across requests in same session)
-// WHY session cache: Some data (user profile, market) rarely changes within a session, no need to hit Tier 1 cache repeatedly
-async function getSessionCachedData(req, key, fetchFn, maxAge = 5 * 60 * 1000) { // O(1) object property access
+// Session-level cache (per-user, survives across requests)
+async function getSessionCachedData(req, key, fetchFn, maxAge = 5 * 60 * 1000) {
   if (!req.user.sessionCache) {
-    req.user.sessionCache = {}; // Initialize on first use
+    req.user.sessionCache = {};
   }
 
   const cached = req.user.sessionCache[key];
@@ -418,52 +356,47 @@ async function getSessionCachedData(req, key, fetchFn, maxAge = 5 * 60 * 1000) {
   console.log(`Session cache miss: ${key}`);
   const data = await fetchFn();
   
-  req.user.sessionCache[key] = { data, timestamp: now }; // Cache with timestamp for TTL check
+  req.user.sessionCache[key] = { data, timestamp: now };
   return data;
 }
 
-// Cache warming: Prefetch common data after authentication
-// WHY: Improves perceived performance (first page load feels instant)
-// Called fire-and-forget from /callback (doesn't block redirect)
+// Prefetch user data after authentication
 async function prefetchUserData(req) {
   const accessToken = req.user.accessToken;
   const userId = req.user.profile?.id || 'unknown';
 
   try {
-    if (!req.user.market) { // Market/country needed for track availability (different per region)
+    if (!req.user.market) {
       const userProfile = await makeCachedSpotifyRequest(
         getUserCacheKey(userId, 'profile'),
         () => axios.get('https://api.spotify.com/v1/me', {
           headers: { Authorization: `Bearer ${accessToken}` }
         }),
-        600 // 10min cache - profile data changes rarely
+        600
       );
       req.user.market = userProfile.data.country || 'US';
     }
 
     console.log(`Prefetched data for user ${userId}`);
   } catch (error) {
-    console.error('Error prefetching user data:', error.message); // Non-fatal, just log
+    console.error('Error prefetching user data:', error.message);
   }
 }
 
-// SECURITY: Input validation prevents API errors and potential injection attacks
 function validatePlaylistName(name) {
   if (!name || typeof name !== 'string') return false;
   const trimmed = name.trim();
-  return trimmed.length > 0 && trimmed.length <= 100; // Spotify's max playlist name length is 100 chars
+  return trimmed.length > 0 && trimmed.length <= 100;
 }
 
 function sanitizePlaylistName(name, defaultName) {
   if (!validatePlaylistName(name)) {
-    return defaultName; // Fall back to safe default if user input is malicious/malformed
+    return defaultName;
   }
   return name.trim();
 }
 
-// Playlist creation: 1 API call to create + n/50 calls to add tracks
-// WHY batches: Spotify's add tracks endpoint accepts max 100 URIs, we use 50 for rate limit safety
-// O(n/50) where n = track count
+// Create playlist and add tracks in batches
 async function createSinglePlaylist(accessToken, name, description, trackUris) {
   if (!trackUris || trackUris.length === 0) {
     return { success: false, playlistId: null, error: 'No tracks provided' };
@@ -474,7 +407,7 @@ async function createSinglePlaylist(accessToken, name, description, trackUris) {
       axios.post('https://api.spotify.com/v1/me/playlists', {
         name,
         description,
-        public: false // SECURITY: Private by default to avoid accidentally exposing user data
+        public: false
       }, {
         headers: {
           Authorization: `Bearer ${accessToken}`
@@ -485,8 +418,6 @@ async function createSinglePlaylist(accessToken, name, description, trackUris) {
     const playlistId = playlistResponse.data.id;
     const totalBatches = Math.ceil(trackUris.length / API_BATCH_SIZES.PLAYLIST_TRACKS);
 
-    // Add tracks in batches of 50 with 100ms delays
-    // WHY delays: Prevents hitting rate limit when creating multiple playlists rapidly
     for (let i = 0; i < trackUris.length; i += API_BATCH_SIZES.PLAYLIST_TRACKS) {
       const batch = trackUris.slice(i, i + API_BATCH_SIZES.PLAYLIST_TRACKS);
       const batchNumber = Math.floor(i / API_BATCH_SIZES.PLAYLIST_TRACKS) + 1;
@@ -505,11 +436,11 @@ async function createSinglePlaylist(accessToken, name, description, trackUris) {
         console.log(`Added batch ${batchNumber}/${totalBatches} to playlist "${name}"`);
         
         if (i + API_BATCH_SIZES.PLAYLIST_TRACKS < trackUris.length) {
-          await delay(REQUEST_DELAY); // 100ms pause between batches
+          await delay(REQUEST_DELAY);
         }
       } catch (error) {
         console.error(`Error adding batch ${batchNumber} to playlist "${name}":`, error.response ? error.response.data : error.message);
-        throw error; // Abort on failure - partial playlists are confusing to users
+        throw error;
       }
     }
 
@@ -522,21 +453,16 @@ async function createSinglePlaylist(accessToken, name, description, trackUris) {
   }
 }
 
-// Core playlist generation algorithm: Fetch liked songs → Get audio features → Categorize by mood
-// Complexity: O(n/50) API calls where n = liked song count (capped at 2000)
-// Time estimate: ~2-3min for 2000 songs (40 API calls with delays)
-// MAINTENANCE: Critical function - changes here affect all mood playlist features
+// Fetch liked songs and categorize by mood using audio features
 async function fetchAndCategorizeTracks(user, category) {
-  let accessToken = await ensureValidToken(user); // Refresh upfront - operation takes 2-5min
+  let accessToken = await ensureValidToken(user);
   let allLikedTracks = [];
-  let limit = 50; // Spotify's max for /me/tracks
+  let limit = 50;
   let offset = 0;
   let totalSongs = 0;
 
   console.log('Fetching liked songs...');
 
-  // Paginated fetch: Keep requesting until we have all tracks or hit MAX_SONGS_LIMIT
-  // WHY pagination: Spotify returns max 50 tracks per request
   do {
     const likedSongsResponse = await makeSpotifyRequest(() =>
       axios.get('https://api.spotify.com/v1/me/tracks', {
@@ -554,8 +480,6 @@ async function fetchAndCategorizeTracks(user, category) {
     offset += limit;
     console.log(`Fetched ${allLikedTracks.length}/${totalSongs} songs...`);
     
-    // WHY 2000 cap: Prevents browser/server timeouts. 2000 songs = ~40 API calls = ~2min processing
-    // Users with >2000 liked songs are rare (<5% of Spotify users) and still get useful playlists
     if (allLikedTracks.length >= MAX_SONGS_LIMIT) {
       console.log(`Reached limit of ${MAX_SONGS_LIMIT} songs. Processing first ${MAX_SONGS_LIMIT} songs.`);
       allLikedTracks = allLikedTracks.slice(0, MAX_SONGS_LIMIT);
@@ -569,11 +493,10 @@ async function fetchAndCategorizeTracks(user, category) {
     throw new Error('No liked songs found. Please like some songs on Spotify first.');
   }
 
-  // Build Map: trackId → trackUri (for O(1) lookups later)
   const trackMap = new Map();
   allLikedTracks.forEach(item => {
     if (item && item.track && item.track.id && item.track.uri) {
-      trackMap.set(item.track.id, item.track.uri); // URI needed for playlist creation
+      trackMap.set(item.track.id, item.track.uri);
     }
   });
 
@@ -585,8 +508,6 @@ async function fetchAndCategorizeTracks(user, category) {
 
   console.log('Fetching audio features in batches...');
 
-  // Fetch audio features in batches of 50 (Spotify supports up to 100 IDs per request)
-  // Audio features: valence, energy, tempo, danceability, etc. - needed for mood classification
   const allAudioFeatures = [];
   for (let i = 0; i < trackIds.length; i += API_BATCH_SIZES.TRACKS) {
     const batch = trackIds.slice(i, i + API_BATCH_SIZES.TRACKS);
@@ -599,7 +520,7 @@ async function fetchAndCategorizeTracks(user, category) {
           headers: {
             Authorization: `Bearer ${accessToken}`
           },
-          params: { ids: batch.join(',') } // Comma-separated track IDs
+          params: { ids: batch.join(',') }
         }), MAX_RETRIES, accessToken
       );
       
@@ -609,14 +530,13 @@ async function fetchAndCategorizeTracks(user, category) {
       
       console.log(`Fetched audio features batch ${batchNumber}/${totalBatches}`);
       
-      // MAINTENANCE: Refresh token every 10 batches (500 tracks) to prevent mid-operation expiration
-      // WHY every 10: Balances API overhead (each refresh = 1 extra API call) with safety
+      // Refresh token periodically for long operations
       if (batchNumber % 10 === 0) {
         accessToken = await ensureValidToken(user);
       }
       
       if (i + API_BATCH_SIZES.TRACKS < trackIds.length) {
-        await delay(REQUEST_DELAY); // 100ms between batches
+        await delay(REQUEST_DELAY);
       }
     } catch (error) {
       console.error(`Error fetching audio features batch ${batchNumber}:`, error.message);
@@ -624,7 +544,6 @@ async function fetchAndCategorizeTracks(user, category) {
     }
   }
 
-  // Build Map: trackId → audioFeatures for O(1) lookups during categorization
   const featuresMap = new Map();
   allAudioFeatures.forEach((features, index) => {
     if (features && features.id && trackIds[index]) {
@@ -635,17 +554,16 @@ async function fetchAndCategorizeTracks(user, category) {
   console.log('Categorizing tracks by mood...');
 
   const categorizedTracks = {
-    energetic: [], // High valence + high energy
-    mellow: [],    // Everything else (catch-all)
-    lowEnergy: []  // Low valence + low energy (chill)
+    energetic: [],
+    mellow: [],
+    lowEnergy: []
   };
 
-  // O(n) categorization pass
   featuresMap.forEach((features, trackId) => {
     const trackUri = trackMap.get(trackId);
     if (!trackUri) return;
 
-    const trackCategory = categorizeTrack(features); // Apply MOOD_THRESHOLDS
+    const trackCategory = categorizeTrack(features);
 
     if (trackCategory === 'energetic') {
       categorizedTracks.energetic.push(trackUri);
@@ -659,7 +577,7 @@ async function fetchAndCategorizeTracks(user, category) {
   console.log(`Categorized: ${categorizedTracks.energetic.length} energetic, ${categorizedTracks.mellow.length} mellow, ${categorizedTracks.lowEnergy.length} low energy`);
 
   return {
-    tracks: categorizedTracks[category], // Return only requested category
+    tracks: categorizedTracks[category],
     totalSongs: allLikedTracks.length,
     stats: {
       energetic: categorizedTracks.energetic.length,
@@ -669,47 +587,34 @@ async function fetchAndCategorizeTracks(user, category) {
   };
 }
 
-// Mood classification algorithm using Spotify's audio features
-// WHY valence+energy: These two metrics best capture "vibe" (tested against 1000+ tracks)
-// Valence: 0=sad/angry, 1=happy/cheerful
-// Energy: 0=calm/slow, 1=intense/fast
-// O(1) - Simple threshold checks
+// Categorize tracks by valence (positivity) and energy (intensity)
 function categorizeTrack(features) {
   if (!features || typeof features.valence !== 'number' || typeof features.energy !== 'number') {
-    return 'mellow'; // Safe default for malformed data
+    return 'mellow';
   }
 
   const { valence, energy } = features;
 
-  // Energetic: High positivity AND high intensity (e.g., upbeat pop, dance)
   if (valence > MOOD_THRESHOLDS.ENERGETIC_VALENCE && energy > MOOD_THRESHOLDS.ENERGETIC_ENERGY) {
     return 'energetic';
   } 
-  // Chill: Low positivity AND low intensity (e.g., ambient, sad acoustic)
   else if (valence < MOOD_THRESHOLDS.LOW_ENERGY_VALENCE && energy < MOOD_THRESHOLDS.LOW_ENERGY_ENERGY) {
     return 'lowEnergy';
   }
-  // Mellow: Everything else (e.g., mid-tempo, medium energy, mixed mood)
   return 'mellow';
 }
 
-// Discovery vs Comfort Ratio Algorithm
-// Insight: Shows if user is exploring new music or replaying favorites
-// Algorithm: Classify recent plays based on overlap with top tracks/artists
-// - Comfort: Track is in top 50 tracks AND at least one artist is in top 50 artists
-// - Discovery: Everything else
-// WHY this definition: "Comfort" requires both track AND artist familiarity (strict criteria avoids false positives)
-// O(n+m) where n=recent tracks (50), m=top tracks+artists (100)
+// Calculate discovery vs comfort ratio: tracks both in top tracks AND top artists = comfort
 async function calculateDiscoveryRatio(accessToken, user, recentTracks = null) {
   try {
     let recentTracksData = recentTracks;
     
-    if (!recentTracksData) { // Fetch if not provided (dashboard already fetches, reuse data)
+    if (!recentTracksData) {
       const recentTracksResponse = await makeSpotifyRequest(() =>
         axios.get('https://api.spotify.com/v1/me/player/recently-played', {
           headers: {
             Authorization: `Bearer ${accessToken}`,
-            'Cache-Control': 'no-cache' // Skip cache - recently played should be fresh
+            'Cache-Control': 'no-cache'
       },
       params: { limit: 50 }
         })
@@ -725,8 +630,6 @@ async function calculateDiscoveryRatio(accessToken, user, recentTracks = null) {
 
     const userId = user.profile?.id || 'unknown';
     
-    // Parallel fetch with caching (both requests are independent)
-    // WHY medium_term: 6-month window balances recent tastes with long-term favorites
     const [topTracksResponse, topArtistsResponse] = await Promise.all([
       makeCachedSpotifyRequest(
         getUserCacheKey(userId, 'top-tracks', { time_range: 'medium_term', limit: 50 }),
@@ -734,7 +637,7 @@ async function calculateDiscoveryRatio(accessToken, user, recentTracks = null) {
           headers: { Authorization: `Bearer ${accessToken}` },
           params: { limit: 50, time_range: 'medium_term' }
         }),
-        300 // 5min cache
+        300
       ),
       makeCachedSpotifyRequest(
         getUserCacheKey(userId, 'top-artists', { time_range: 'medium_term', limit: 50 }),
@@ -746,7 +649,6 @@ async function calculateDiscoveryRatio(accessToken, user, recentTracks = null) {
       )
     ]);
 
-    // Build Sets for O(1) lookups during classification
     const topTrackIds = new Set();
     (topTracksResponse.data.items || []).forEach(track => {
       if (track && track.id) topTrackIds.add(track.id);
@@ -757,7 +659,6 @@ async function calculateDiscoveryRatio(accessToken, user, recentTracks = null) {
       if (artist && artist.id) topArtistIds.add(artist.id);
     });
 
-    // O(n) classification pass
     let comfortCount = 0;
     let discoveryCount = 0;
 
@@ -772,11 +673,10 @@ async function calculateDiscoveryRatio(accessToken, user, recentTracks = null) {
         isTopArtist = track.artists.some(artist => artist && artist.id && topArtistIds.has(artist.id));
       }
 
-      // Strict comfort criteria: BOTH track and artist must be in top lists
       if (isTopTrack && isTopArtist) {
         comfortCount++;
       } else {
-        discoveryCount++; // New tracks, new artists, or familiar artist with new song
+        discoveryCount++;
       }
     });
 
@@ -791,7 +691,7 @@ async function calculateDiscoveryRatio(accessToken, user, recentTracks = null) {
   }
 }
 
-function getHourMessage(hour) { // Human-friendly time period labels for UX
+function getHourMessage(hour) {
   if (hour >= 0 && hour < 3) return "Late night listener";
   if (hour >= 3 && hour < 6) return "Early bird";
   if (hour >= 6 && hour < 9) return "Morning starter";
@@ -803,7 +703,7 @@ function getHourMessage(hour) { // Human-friendly time period labels for UX
   return "Late evening session";
 }
 
-function formatHourRange(hour) { // Convert 24hr to 12hr AM/PM format
+function formatHourRange(hour) {
   const startHour = hour % 12 || 12;
   const startPeriod = hour < 12 ? 'AM' : 'PM';
   const endHour = (hour + 1) % 12 || 12;
@@ -811,28 +711,25 @@ function formatHourRange(hour) { // Convert 24hr to 12hr AM/PM format
   return `${startHour}:00-${endHour}:00${endPeriod}`;
 }
 
-// Weekly listening heatmap: Find most common listening hour per day of week
-// Algorithm: Build 7×24 grid (days × hours), track play counts, find peaks
-// O(n) where n = number of recent tracks (typically 50)
+// Generate weekly listening heatmap with most common hour per day
 function generateHeatmapData(recentTracks) {
-  const heatmapGrid = Array(7).fill(null).map(() => Array(24).fill(0)); // [dayOfWeek][hour] = playCount
+  const heatmapGrid = Array(7).fill(null).map(() => Array(24).fill(0));
   
-  let maxCount = 0; // Global peak across all days/hours
+  let maxCount = 0;
   let peakDay = 0;
   let peakHour = 0;
 
-  // O(n) pass: Count plays per day/hour cell
   recentTracks.forEach(trackItem => {
     if (!trackItem || !trackItem.played_at) return;
 
     const playedAt = new Date(trackItem.played_at);
-    const dayOfWeek = playedAt.getDay(); // 0=Sunday, 6=Saturday (JavaScript Date standard)
+    const dayOfWeek = playedAt.getDay();
     const hour = playedAt.getHours();
 
     if (dayOfWeek >= 0 && dayOfWeek < 7 && hour >= 0 && hour < 24) {
       heatmapGrid[dayOfWeek][hour]++;
 
-      if (heatmapGrid[dayOfWeek][hour] > maxCount) { // Track global peak
+      if (heatmapGrid[dayOfWeek][hour] > maxCount) {
         maxCount = heatmapGrid[dayOfWeek][hour];
         peakDay = dayOfWeek;
         peakHour = hour;
@@ -840,7 +737,6 @@ function generateHeatmapData(recentTracks) {
     }
   });
 
-  // O(7×24) = O(1): Find most common hour per day
   const dayData = [];
   const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
   
@@ -876,13 +772,6 @@ function generateHeatmapData(recentTracks) {
   return { dayData, peakDay, peakHour, peakDayName, peakHourRange, peakHourMessage, maxCount };
 }
 
-// GET /dashboard
-// Auth: Required (ensureAuthenticated, refreshTokenIfNeeded)
-// Query: limit (default: 50, max: 50) - number of recent tracks to analyze
-// Returns: dashboard.ejs with 4 visualizations (time-of-day bar chart, genre distribution, discovery donut, weekly heatmap)
-// Caching: Uses makeCachedSpotifyRequest for artist data (5min TTL), fresh data for recently-played
-// Performance: 2-4 parallel API calls depending on data, ~1-2s load time
-// Algorithm: O(n) where n = recent tracks, genre aggregation is O(m) where m = unique artists
 app.get('/dashboard', ensureAuthenticated, refreshTokenIfNeeded, async (req, res) => {
   const accessToken = req.user.accessToken;
   const limit = parseInt(req.query.limit) || 50; // Default to 50, allow up to 50
@@ -901,9 +790,7 @@ app.get('/dashboard', ensureAuthenticated, refreshTokenIfNeeded, async (req, res
     const recentTracks = recentTracksResponse.data.items || [];
 
     if (recentTracks.length === 0) {
-      // Calculate Discovery vs Comfort ratio (will return empty data)
       const discoveryData = await calculateDiscoveryRatio(accessToken, req.user, recentTracks);
-      // Generate heatmap data (will return empty data)
       const heatmapData = generateHeatmapData(recentTracks);
       
       return res.render('dashboard', {
@@ -941,9 +828,7 @@ app.get('/dashboard', ensureAuthenticated, refreshTokenIfNeeded, async (req, res
     const uniqueArtistIds = Array.from(artistIds);
     
     if (uniqueArtistIds.length === 0) {
-      // Calculate Discovery vs Comfort ratio
       const discoveryData = await calculateDiscoveryRatio(accessToken, req.user, recentTracks);
-      // Generate heatmap data
       const heatmapData = generateHeatmapData(recentTracks);
       
       return res.render('dashboard', {
@@ -957,7 +842,6 @@ app.get('/dashboard', ensureAuthenticated, refreshTokenIfNeeded, async (req, res
       });
     }
 
-    // Build artist batch requests for genre data
     const artistBatchPromises = [];
     for (let i = 0; i < uniqueArtistIds.length; i += API_BATCH_SIZES.ARTISTS) {
       const batch = uniqueArtistIds.slice(i, i + API_BATCH_SIZES.ARTISTS);
@@ -975,16 +859,12 @@ app.get('/dashboard', ensureAuthenticated, refreshTokenIfNeeded, async (req, res
       );
     }
 
-    // Run artist fetching, discovery ratio, and heatmap generation IN PARALLEL
     const [artistResponses, discoveryData] = await Promise.all([
       Promise.all(artistBatchPromises),
       calculateDiscoveryRatio(accessToken, req.user, recentTracks)
     ]);
 
-    // Generate heatmap data (sync operation, no API calls)
     const heatmapData = generateHeatmapData(recentTracks);
-
-    // Process genre data from artist responses
     const genreCount = {};
     artistResponses.forEach(response => {
       if (response.data && response.data.artists) {
@@ -1022,22 +902,17 @@ app.get('/dashboard', ensureAuthenticated, refreshTokenIfNeeded, async (req, res
   }
 });
 
-// GET /logout
-// Auth: None required (works authenticated or not)
-// Returns: Redirect to /
-// Side Effects: Clears user API cache, destroys session
-// SECURITY: Important to clear cache and session to prevent data leakage
 app.get('/logout', (req, res, next) => {
   const userId = req.user?.profile?.id;
   if (userId) {
-    clearUserCache(userId); // Clear Tier 1 cache entries for this user
+    clearUserCache(userId);
   }
   
-  req.logout((err) => { // Passport logout (clears req.user)
+  req.logout((err) => {
     if (err) {
       return next(err);
     }
-    req.session.destroy((err) => { // Destroy Express session (clears Tier 2 cache + tokens)
+    req.session.destroy((err) => {
       if (err) {
         console.error('Error destroying session:', err);
       } else {
@@ -1048,14 +923,9 @@ app.get('/logout', (req, res, next) => {
   });
 });
 
-// GET /get-top-tracks
-// Auth: Required (ensureAuthenticated, refreshTokenIfNeeded)
-// Query: time_range ('short_term'=4 weeks, 'medium_term'=6 months, 'long_term'=all time) - default: medium_term
-// Returns: top-tracks.ejs with 50 most played tracks, metadata (name, artists, album, duration, popularity)
-// Caching: 5min cache per user/time_range combination
 app.get('/get-top-tracks', ensureAuthenticated, refreshTokenIfNeeded, async (req, res) => {
   const accessToken = req.user.accessToken;
-  const timeRange = req.query.time_range || 'medium_term'; // Default to 6 months
+  const timeRange = req.query.time_range || 'medium_term';
 
   try {
     const userId = req.user.profile?.id || 'unknown';
@@ -1072,7 +942,7 @@ app.get('/get-top-tracks', ensureAuthenticated, refreshTokenIfNeeded, async (req
           time_range: timeRange
         }
       }),
-      300 // 5 minute cache
+      300
     );
     
     res.render('top-tracks', { tracks: response.data.items || [], timeRange });
@@ -1085,19 +955,12 @@ app.get('/get-top-tracks', ensureAuthenticated, refreshTokenIfNeeded, async (req
   }
 });
 
-// GET /get-top-artists
-// Auth: Required (ensureAuthenticated, refreshTokenIfNeeded)
-// Query: time_range (short_term/medium_term/long_term) - default: medium_term
-// Returns: top-artists.ejs with 50 most played artists, metadata (name, image, genres, followers, popularity)
-// Caching: 5min cache for artist list, 10min cache for artist top tracks (lazily loaded via separate API endpoint)
-// Performance: Initial page load fast (1 API call), top tracks loaded on-demand per artist
 app.get('/get-top-artists', ensureAuthenticated, refreshTokenIfNeeded, async (req, res) => {
   const accessToken = req.user.accessToken;
-  const timeRange = req.query.time_range || 'medium_term'; // Default to 6 months
+  const timeRange = req.query.time_range || 'medium_term';
   const userId = req.user.profile?.id || 'unknown';
 
   try {
-    // Get user's market/country from profile (cache it if not already cached)
     let userMarket = req.user.market;
     if (!userMarket) {
       try {
@@ -1109,9 +972,9 @@ app.get('/get-top-artists', ensureAuthenticated, refreshTokenIfNeeded, async (re
           })
         );
         userMarket = userProfile.data.country || 'US';
-        req.user.market = userMarket; // Cache for future use
+        req.user.market = userMarket;
       } catch (error) {
-        userMarket = 'US'; // Fallback to US
+        userMarket = 'US';
       }
     }
 
@@ -1127,12 +990,11 @@ app.get('/get-top-artists', ensureAuthenticated, refreshTokenIfNeeded, async (re
           time_range: timeRange
         }
       }),
-      300 // 5 minute cache
+      300
     );
 
     const artists = response.data.items || [];
 
-    // Return artists immediately without top tracks (lazy loaded via API)
     res.render('top-artists', { artists, timeRange, userMarket });
   } catch (error) {
     console.error('Error fetching top artists:', error.response ? error.response.data : error.message);
@@ -1143,19 +1005,12 @@ app.get('/get-top-artists', ensureAuthenticated, refreshTokenIfNeeded, async (re
   }
 });
 
-// GET /api/artist/:artistId/top-track
-// Auth: Required (ensureAuthenticated, refreshTokenIfNeeded)
-// Params: artistId (Spotify artist ID)
-// Returns: JSON {success: bool, track: {name, album} or null}
-// Caching: 10min cache per artist (artist data changes infrequently)
-// Purpose: Lazy loading for top-artists page - fetched on-demand to improve initial page load
 app.get('/api/artist/:artistId/top-track', ensureAuthenticated, refreshTokenIfNeeded, async (req, res) => {
   const accessToken = req.user.accessToken;
   const artistId = req.params.artistId;
   const userMarket = req.user.market || 'US';
 
   try {
-    // Cache artist top tracks for 10 minutes (artist data changes less frequently)
     const cacheKey = `artist:${artistId}:top-tracks:${userMarket}`;
     const topTracks = await makeCachedSpotifyRequest(
       cacheKey,
@@ -1167,7 +1022,7 @@ app.get('/api/artist/:artistId/top-track', ensureAuthenticated, refreshTokenIfNe
           market: userMarket
         }
       }),
-      600 // 10 minute cache for artist data
+      600
     );
 
     const mostListenedTrack = topTracks.data.tracks && topTracks.data.tracks[0] ? topTracks.data.tracks[0] : null;
@@ -1185,14 +1040,6 @@ app.get('/api/artist/:artistId/top-track', ensureAuthenticated, refreshTokenIfNe
   }
 });
 
-// GET /get-artist-dive
-// Auth: Required (ensureAuthenticated, refreshTokenIfNeeded)
-// Query: time_range (short_term/medium_term/long_term) - default: medium_term
-// Returns: artist-dive.ejs with coverage analysis (% of each artist's top tracks user has heard)
-// Algorithm: Fetch top 30 artists, build set of heard tracks (top 50 + recent 50), calculate overlap per artist
-// Caching: 5min cache for top artists, fresh data for user's listening history
-// Performance: ~25-30 API calls (1 per artist + 2 for user data), ~5-10s load time
-// Feature flag: Disabled via IS_ARTIST_DIVE_DISABLED env var
 app.get('/get-artist-dive', ensureAuthenticated, refreshTokenIfNeeded, async (req, res) => {
   if (IS_ARTIST_DIVE_DISABLED) {
     return res.status(503).render('error', {
@@ -1202,11 +1049,10 @@ app.get('/get-artist-dive', ensureAuthenticated, refreshTokenIfNeeded, async (re
   }
 
   const accessToken = req.user.accessToken;
-  const timeRange = req.query.time_range || 'medium_term'; // Default to 6 months
+  const timeRange = req.query.time_range || 'medium_term';
   const userId = req.user.profile?.id || 'unknown';
 
   try {
-    // Get user's market/country from session cache or profile
     let userMarket = req.user.market;
     if (!userMarket) {
       const userProfileResponse = await makeCachedSpotifyRequest(
@@ -1216,13 +1062,12 @@ app.get('/get-artist-dive', ensureAuthenticated, refreshTokenIfNeeded, async (re
             Authorization: `Bearer ${accessToken}`
           }
         }),
-        600 // 10 minute cache
+        600
       );
       userMarket = userProfileResponse.data.country || 'US';
-      req.user.market = userMarket; // Cache in session
+      req.user.market = userMarket;
     }
 
-    // Fetch user's top artists with caching
     const topArtistsResponse = await makeCachedSpotifyRequest(
       getUserCacheKey(userId, 'top-artists-dive', { time_range: timeRange, limit: 30 }),
       () => axios.get('https://api.spotify.com/v1/me/top/artists', {
@@ -1234,7 +1079,7 @@ app.get('/get-artist-dive', ensureAuthenticated, refreshTokenIfNeeded, async (re
           time_range: timeRange
         }
       }),
-      300 // 5 minute cache
+      300
     );
 
     const topArtists = topArtistsResponse.data.items || [];
@@ -1243,10 +1088,8 @@ app.get('/get-artist-dive', ensureAuthenticated, refreshTokenIfNeeded, async (re
       return res.render('artist-dive', { artists: [], timeRange });
     }
 
-    // Build set of user's heard tracks (from top tracks + recently played)
     const userTracksSet = new Set();
 
-    // Fetch top tracks
     const topTracksResponse = await makeSpotifyRequest(() =>
       axios.get('https://api.spotify.com/v1/me/top/tracks', {
       headers: {
@@ -1266,7 +1109,6 @@ app.get('/get-artist-dive', ensureAuthenticated, refreshTokenIfNeeded, async (re
       }
     });
 
-    // Fetch recently played tracks
     const recentTracksResponse = await makeSpotifyRequest(() =>
       axios.get('https://api.spotify.com/v1/me/player/recently-played', {
         headers: {
@@ -1284,10 +1126,8 @@ app.get('/get-artist-dive', ensureAuthenticated, refreshTokenIfNeeded, async (re
       }
     });
 
-    // Analyze each artist's coverage
     const artistAnalysisPromises = topArtists.slice(0, 20).map(async artist => {
       try {
-        // Fetch artist's top tracks using user's market
         const artistTopTracksResponse = await makeSpotifyRequest(() =>
           axios.get(`https://api.spotify.com/v1/artists/${artist.id}/top-tracks`, {
             headers: {
@@ -1301,7 +1141,6 @@ app.get('/get-artist-dive', ensureAuthenticated, refreshTokenIfNeeded, async (re
 
         const artistTopTracks = artistTopTracksResponse.data.tracks || [];
         
-        // Calculate coverage
         let heardCount = 0;
         const missingTracks = [];
 
@@ -1323,7 +1162,7 @@ app.get('/get-artist-dive', ensureAuthenticated, refreshTokenIfNeeded, async (re
           coveragePercent,
           heardCount,
           totalTracks,
-          missingTracks: missingTracks.slice(0, 10) // Limit to first 10 missing tracks
+          missingTracks: missingTracks.slice(0, 10)
         };
   } catch (error) {
         console.error(`Error analyzing artist ${artist.id}:`, error.message);
@@ -1339,11 +1178,10 @@ app.get('/get-artist-dive', ensureAuthenticated, refreshTokenIfNeeded, async (re
 
     const artistAnalyses = await Promise.all(artistAnalysisPromises);
 
-    // Sort by coverage (lowest first - most opportunity for discovery)
     const sortedArtists = artistAnalyses
-      .filter(analysis => analysis.totalTracks > 0) // Only include artists with tracks
+      .filter(analysis => analysis.totalTracks > 0)
       .sort((a, b) => a.coveragePercent - b.coveragePercent)
-      .slice(0, 15); // Top 15 artists with lowest coverage
+      .slice(0, 15);
 
     res.render('artist-dive', { artists: sortedArtists, timeRange });
   } catch (error) {
@@ -1355,20 +1193,12 @@ app.get('/get-artist-dive', ensureAuthenticated, refreshTokenIfNeeded, async (re
   }
 });
 
-// POST /create-artist-playlist/:artistId
-// Auth: Required (ensureAuthenticated, refreshTokenIfNeeded)
-// Params: artistId (Spotify artist ID)
-// Body: name (optional custom playlist name), artistName (for description)
-// Returns: JSON {success: bool, message: string, playlistUrl: string, playlistId: string}
-// Algorithm: Fetch artist top tracks, build heard tracks set, filter for unheard tracks, create playlist
-// Performance: 3-4 API calls, completes synchronously in ~1-2s
 app.post('/create-artist-playlist/:artistId', ensureAuthenticated, refreshTokenIfNeeded, async (req, res) => {
   const accessToken = await ensureValidToken(req.user);
   const artistId = req.params.artistId;
   const playlistName = sanitizePlaylistName(req.body.name || '', `Deep Dive - ${req.body.artistName || 'Artist'}`);
 
   try {
-    // Get user's market/country and ID from profile
     const userProfileResponse = await makeSpotifyRequest(() =>
       axios.get('https://api.spotify.com/v1/me', {
           headers: {
@@ -1376,10 +1206,9 @@ app.post('/create-artist-playlist/:artistId', ensureAuthenticated, refreshTokenI
           }
       })
     );
-    const userMarket = userProfileResponse.data.country || 'US'; // Default to US if not available
+    const userMarket = userProfileResponse.data.country || 'US';
     const userId = userProfileResponse.data.id;
 
-    // Fetch artist's top tracks using user's market
     const artistTopTracksResponse = await makeSpotifyRequest(() =>
       axios.get(`https://api.spotify.com/v1/artists/${artistId}/top-tracks`, {
         headers: {
@@ -1393,7 +1222,6 @@ app.post('/create-artist-playlist/:artistId', ensureAuthenticated, refreshTokenI
 
     const artistTopTracks = artistTopTracksResponse.data.tracks || [];
 
-    // Build set of user's heard tracks
     const userTracksSet = new Set();
 
     const topTracksResponse = await makeSpotifyRequest(() =>
@@ -1432,7 +1260,6 @@ app.post('/create-artist-playlist/:artistId', ensureAuthenticated, refreshTokenI
       }
     });
 
-    // Find missing tracks
     const missingTracks = artistTopTracks
       .filter(track => track && track.id && !userTracksSet.has(track.id))
       .map(track => track.uri);
@@ -1444,7 +1271,6 @@ app.post('/create-artist-playlist/:artistId', ensureAuthenticated, refreshTokenI
       });
     }
 
-    // Create playlist
     const createPlaylistResponse = await makeSpotifyRequest(() =>
       axios.post(`https://api.spotify.com/v1/users/${userId}/playlists`, {
         name: playlistName,
@@ -1460,7 +1286,6 @@ app.post('/create-artist-playlist/:artistId', ensureAuthenticated, refreshTokenI
 
     const playlistId = createPlaylistResponse.data.id;
 
-    // Add tracks to playlist in batches
     const trackBatches = [];
     for (let i = 0; i < missingTracks.length; i += API_BATCH_SIZES.TRACKS) {
       const batch = missingTracks.slice(i, i + API_BATCH_SIZES.TRACKS);
@@ -1479,7 +1304,6 @@ app.post('/create-artist-playlist/:artistId', ensureAuthenticated, refreshTokenI
         })
       );
 
-      // Add delay between batches
       if (trackBatches.indexOf(batch) < trackBatches.length - 1) {
         await new Promise(resolve => setTimeout(resolve, REQUEST_DELAY));
       }
@@ -1501,23 +1325,17 @@ app.post('/create-artist-playlist/:artistId', ensureAuthenticated, refreshTokenI
   }
 });
 
-// GET /api/job/:jobId
-// Auth: Required (ensureAuthenticated)
-// Params: jobId (background job ID)
-// Returns: JSON {success: bool, job: {id, status, progress, message, result, error}}
-// Purpose: Client-side polling endpoint for background job progress
-// Performance: O(1) Map lookup, <1ms response time
 app.get('/api/job/:jobId', ensureAuthenticated, (req, res) => {
   const job = getJob(req.params.jobId);
   if (!job) {
-    return res.status(404).json({ success: false, error: 'Job not found' }); // Job expired (>1hr old) or invalid ID
+    return res.status(404).json({ success: false, error: 'Job not found' });
   }
   res.json({
     success: true,
     job: {
       id: job.id,
-      status: job.status, // pending | processing | completed | failed
-      progress: job.progress, // 0-100
+      status: job.status,
+      progress: job.progress,
       message: job.message,
       result: job.result,
       error: job.error
@@ -1525,9 +1343,7 @@ app.get('/api/job/:jobId', ensureAuthenticated, (req, res) => {
   });
 });
 
-// Background playlist processor - Runs async job for mood-based playlist creation
-// WHY background: Playlist creation for 2000 songs takes 2-5min, would cause HTTP timeout if synchronous
-// Called from POST /create-playlist/* routes (fire-and-forget, returns job ID immediately)
+// Process playlist creation job in background
 async function processPlaylistJob(jobId, user, category, playlistName, description) {
   try {
     updateJob(jobId, { status: 'processing', progress: 10, message: 'Fetching your liked songs...' });
@@ -1574,28 +1390,16 @@ async function processPlaylistJob(jobId, user, category, playlistName, descripti
   }
 }
 
-// POST /create-playlist/energetic
-// Auth: Required (ensureAuthenticated, refreshTokenIfNeeded)
-// Body: name (optional custom playlist name)
-// Returns: JSON {success: bool, jobId: string, message: string, checkUrl: string}
-// Algorithm: Mood-based playlist from liked songs (valence>0.6 AND energy>0.6)
-// Performance: Async background job (2-5min for large libraries), returns immediately
 app.post('/create-playlist/energetic', ensureAuthenticated, refreshTokenIfNeeded, async (req, res) => {
   const playlistName = sanitizePlaylistName(req.body.name, 'Energetic Vibes');
   const jobId = createJob('playlist', { category: 'energetic', playlistName });
   
   processPlaylistJob(jobId, req.user, 'energetic', playlistName, 'Energetic playlist created from your liked songs')
-    .catch(err => console.error('Job error:', err)); // Fire-and-forget, errors logged but don't block response
+    .catch(err => console.error('Job error:', err));
   
   res.json({ success: true, jobId, message: 'Playlist creation started. Check progress with the job ID.', checkUrl: `/api/job/${jobId}` });
 });
 
-// POST /create-playlist/mellow
-// Auth: Required (ensureAuthenticated, refreshTokenIfNeeded)
-// Body: name (optional custom playlist name)
-// Returns: JSON {success: bool, jobId: string, message: string, checkUrl: string}
-// Algorithm: Mood-based playlist from liked songs (mid-range valence/energy, catch-all for non-extreme tracks)
-// Performance: Async background job (2-5min for large libraries), returns immediately
 app.post('/create-playlist/mellow', ensureAuthenticated, refreshTokenIfNeeded, async (req, res) => {
   const playlistName = sanitizePlaylistName(req.body.name, 'Mellow Tunes');
   const jobId = createJob('playlist', { category: 'mellow', playlistName });
@@ -1606,12 +1410,6 @@ app.post('/create-playlist/mellow', ensureAuthenticated, refreshTokenIfNeeded, a
   res.json({ success: true, jobId, message: 'Playlist creation started. Check progress with the job ID.', checkUrl: `/api/job/${jobId}` });
 });
 
-// POST /create-playlist/chill
-// Auth: Required (ensureAuthenticated, refreshTokenIfNeeded)
-// Body: name (optional custom playlist name)
-// Returns: JSON {success: bool, jobId: string, message: string, checkUrl: string}
-// Algorithm: Mood-based playlist from liked songs (valence<0.4 AND energy<0.5 - low energy, relaxing)
-// Performance: Async background job (2-5min for large libraries), returns immediately
 app.post('/create-playlist/chill', ensureAuthenticated, refreshTokenIfNeeded, async (req, res) => {
   const playlistName = sanitizePlaylistName(req.body.name, 'Chill Vibes');
   const jobId = createJob('playlist', { category: 'chill', playlistName });
@@ -1622,16 +1420,15 @@ app.post('/create-playlist/chill', ensureAuthenticated, refreshTokenIfNeeded, as
   res.json({ success: true, jobId, message: 'Playlist creation started. Check progress with the job ID.', checkUrl: `/api/job/${jobId}` });
 });
 
-// Test utility: Reset all in-memory stores to clean state
-// MAINTENANCE: Must be called in beforeEach() of Jest tests to prevent test pollution
+// Reset test state for Jest
 function resetTestState() {
-  jobStore.clear(); // Clear background jobs
-  requestQueue = []; // Clear pending API requests
-  activeRequests = 0; // Reset concurrency counter
-  apiCache.flushAll(); // Clear all cached API responses
+  jobStore.clear();
+  requestQueue = [];
+  activeRequests = 0;
+  apiCache.flushAll();
 }
 
-if (require.main === module) { // Only start server if run directly (not when imported by tests)
+if (require.main === module) {
   app.listen(port, () => {
     console.log(`Server running at http://localhost:${port}`);
   });

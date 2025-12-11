@@ -1,7 +1,6 @@
 # Environment variables
 .env
-.env.local
-.env.production
+
 
 # Node modules
 node_modules/
@@ -30,5 +29,5 @@ sessions/
 dist/
 build/
 
-# Project documentation (for AI parsing)
-ProjectBrief.md
+.md 
+!README.md

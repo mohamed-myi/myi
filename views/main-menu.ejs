@@ -638,10 +638,9 @@
             chill: 'Chill'
         };
 
-        // Job polling: Recursive 1s interval checks until completion or 2min timeout
-        // WHY polling: WebSockets would be overkill for 2-5min jobs, HTTP polling is simpler
+        // Poll job status every 1s until complete or 2min timeout
         async function pollJobStatus(jobId, onProgress, onComplete, onError) {
-            const maxAttempts = 120; // 120s = 2min max wait time
+            const maxAttempts = 120;
             let attempts = 0;
 
             const poll = async () => {
@@ -669,16 +668,16 @@
 
                     attempts++;
                     if (attempts < maxAttempts) {
-                        setTimeout(poll, 1000); // Recursive call after 1s delay
+                        setTimeout(poll, 1000);
                     } else {
-                        onError('Operation timed out. Please try again.'); // 2min exceeded
+                        onError('Operation timed out. Please try again.');
                     }
                 } catch (error) {
                     onError(error.message);
                 }
             };
 
-            poll(); // Start polling immediately
+            poll();
         }
 
         function setupPlaylistForm(formId, category) {
@@ -689,12 +688,11 @@
             form.addEventListener('submit', async (e) => {
                 e.preventDefault();
 
-                // TEMPORARY: Feature under maintenance
+                // Feature under maintenance
                 resultDiv.className = 'playlist-result-message error';
                 resultDiv.style.display = 'block';
                 resultDiv.innerHTML = `<strong>Sorry, this feature is under maintenance.</strong><br>Please try again later.`;
                 return;
-                // END TEMPORARY
 
                 const formData = new FormData(form);
                 const playlistName = formData.get('name') || `${categoryNames[category]} Vibes`;
@@ -707,7 +705,6 @@
                 loadingSubtext.textContent = 'Starting...';
 
                 try {
-                    // Start the background job
                     const response = await fetch(endpoints[category], {
                         method: 'POST',
                         headers: {
@@ -722,14 +719,11 @@
                         throw new Error(data.message || 'Failed to start playlist creation');
                     }
 
-                    // Poll for job status
                     pollJobStatus(
                         data.jobId,
-                        // On progress update
                         (progress, message) => {
                             loadingSubtext.textContent = message || `Progress: ${progress}%`;
                         },
-                        // On complete
                         (result) => {
                             loadingOverlay.classList.remove('active');
                             resultDiv.className = 'playlist-result-message success';
@@ -744,7 +738,6 @@
                             submitButton.disabled = false;
                             submitButton.textContent = 'Create Playlist';
                         },
-                        // On error
                         (errorMsg) => {
                             loadingOverlay.classList.remove('active');
                             resultDiv.className = 'playlist-result-message error';
@@ -769,23 +762,21 @@
         setupPlaylistForm('mellow-form', 'mellow');
         setupPlaylistForm('chill-form', 'chill');
 
-        // Tier 3 Cache: Client-side hover prefetching
-        // WHY: Reduces perceived page load time from ~1-2s to instant (data already fetched on hover)
-        // Triggered 500ms after hover to avoid prefetching on accidental mouse-overs
-        const cache = new Map(); // url → html string
-        const precacheDelay = 500; // ms delay before prefetch starts
+        // Client-side hover prefetching for faster navigation
+        const cache = new Map();
+        const precacheDelay = 500;
         let precacheTimeout = null;
 
         async function precachePage(url) {
             if (cache.has(url)) {
-                return; // Already cached
+                return;
             }
 
             try {
                 const response = await fetch(url, {
                     method: 'GET',
                     headers: {
-                        'X-Requested-With': 'XMLHttpRequest' // Identify as AJAX request
+                        'X-Requested-With': 'XMLHttpRequest'
                     }
                 });
                 
@@ -795,7 +786,7 @@
                     console.log(`Precached: ${url}`);
                 }
             } catch (error) {
-                console.log(`Precache failed for ${url}:`, error); // Non-fatal, just log
+                console.log(`Precache failed for ${url}:`, error);
             }
         }
 
@@ -822,7 +813,6 @@
                 clearTimeout(precacheTimeout);
             });
 
-            // Show loading overlay when clicking feature cards
             card.addEventListener('click', (e) => {
                 const url = card.getAttribute('href');
                 loadingOverlay.classList.add('active');
