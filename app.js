@@ -92,11 +92,6 @@ if (missingVars.length > 0) {
   process.exit(1);
 }
 
-console.log('=== Spotify OAuth Configuration ===');
-console.log('Client ID:', process.env.SPOTIFY_CLIENT_ID);
-console.log('Callback URL:', process.env.CALLBACK_URL || 'http://localhost:3000/callback');
-console.log('===================================');
-
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 
